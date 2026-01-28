@@ -1,0 +1,1619 @@
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { Plus, Minus, Check, MapPin, MessageSquare, ArrowUpDown, AlertTriangle, CheckCircle2, ChevronRight, ChevronDown, Undo2, Trash2, Clock, User, Package } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
+import type { Tool, LineItem, LineItemWithPicks, Pick, IssueType } from '@/types';
+import { Layers, SplitSquareVertical } from 'lucide-react';
+import { useSettings } from '@/hooks/useSettings';
+import { cn, formatDateTime } from '@/lib/utils';
+import { ReportIssueDialog } from './ReportIssueDialog';
+import { DistributeInventoryDialog } from './DistributeInventoryDialog';
+
+type SortMode = 'part_number' | 'location';
+
+const SORT_PREFERENCE_KEY = 'picking-sort-preference';
+
+// Swipe threshold in pixels for touch gestures
+const SWIPE_THRESHOLD = 100;
+
+// Extract location prefix (e.g., "A-01" -> "A", "B-02-03" -> "B-02")
+function getLocationPrefix(location: string | null | undefined): string {
+  if (!location) return '';
+  const parts = location.split('-');
+  if (parts.length >= 2) {
+    return `${parts[0]}-${parts[1]}`;
+  }
+  return parts[0] || '';
+}
+
+// Alphanumeric sort comparison
+function alphanumericCompare(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+}
+
+interface PickingInterfaceProps {
+  tool: Tool;
+  allTools: Tool[];
+  orderId: string;
+  lineItems: LineItem[];
+  lineItemsWithPicks: LineItemWithPicks[];
+  picks: Pick[];
+  onRecordPick: (
+    lineItemId: string,
+    toolId: string,
+    qtyPicked: number,
+    pickedBy?: string,
+    notes?: string
+  ) => Promise<Pick | null>;
+  onUndoPick: (pickId: string) => Promise<boolean>;
+  getPicksForTool: (toolId: string) => Map<string, number>;
+  getPicksForAllTools: () => Map<string, Map<string, number>>;
+  getPickHistory: (lineItemId: string, toolId: string) => Pick[];
+  onPickAllRemainingTools?: (lineItemId: string) => Promise<void>;
+  onReportIssue?: (
+    lineItemId: string,
+    orderId: string,
+    issueType: IssueType,
+    description?: string,
+    reportedBy?: string
+  ) => Promise<boolean>;
+  hasOpenIssue?: (lineItemId: string) => boolean;
+  onBatchUpdateAllocations?: (
+    lineItemId: string,
+    newAllocations: Map<string, number>,
+    pickedBy?: string,
+    notes?: string
+  ) => Promise<boolean>;
+  toolFilter?: string; // 'all' or specific tool ID to filter by
+}
+
+// Tool Status Indicators Component
+interface ToolStatusIndicatorsProps {
+  tools: Tool[];
+  lineItem: LineItem;
+  picksMap: Map<string, Map<string, number>>;
+  currentToolId: string;
+  onPickTool: (toolId: string) => void;
+  onUndoTool: (toolId: string, toolNumber: string) => void;
+  onPartialToolClick: (toolId: string, toolNumber: string, picked: number, remaining: number) => void;
+  disabled?: boolean;
+}
+
+function ToolStatusIndicators({
+  tools,
+  lineItem,
+  picksMap,
+  currentToolId,
+  onPickTool,
+  onUndoTool,
+  onPartialToolClick,
+  disabled
+}: ToolStatusIndicatorsProps) {
+  return (
+    <div className="flex gap-1 flex-wrap">
+      {tools.map(tool => {
+        const toolPicks = picksMap.get(tool.id);
+        const picked = toolPicks?.get(lineItem.id) || 0;
+        const needed = lineItem.qty_per_unit;
+        const isComplete = picked >= needed;
+        const isPartial = picked > 0 && picked < needed;
+        const isCurrent = tool.id === currentToolId;
+
+        // Extract short tool identifier (last part after dash or last 2 chars)
+        const toolLabel = tool.tool_number.includes('-')
+          ? tool.tool_number.split('-').pop() || tool.tool_number.slice(-2)
+          : tool.tool_number.slice(-2);
+
+        return (
+          <button
+            key={tool.id}
+            onClick={() => {
+              if (disabled) return;
+              if (isComplete) {
+                // Undo when fully complete
+                onUndoTool(tool.id, tool.tool_number);
+              } else if (isPartial) {
+                // Show options dialog for partial picks
+                onPartialToolClick(tool.id, tool.tool_number, picked, needed - picked);
+              } else {
+                // Pick all when not started
+                onPickTool(tool.id);
+              }
+            }}
+            disabled={disabled}
+            className={cn(
+              "w-7 h-7 rounded text-xs font-medium transition-all",
+              "flex items-center justify-center",
+              isComplete
+                ? "bg-green-500 text-white hover:bg-red-500 cursor-pointer"
+                : isPartial
+                  ? "bg-amber-500 text-white hover:bg-amber-600 cursor-pointer"
+                  : "bg-gray-200 dark:bg-gray-700 hover:bg-blue-200 dark:hover:bg-blue-800 cursor-pointer",
+              isCurrent && !isComplete && "ring-2 ring-blue-500 ring-offset-1",
+              disabled && "opacity-50 cursor-not-allowed"
+            )}
+            title={
+              isComplete
+                ? `${tool.tool_number}: Complete - Click to undo`
+                : isPartial
+                  ? `${tool.tool_number}: Partial (${picked}/${needed}) - Click for options`
+                  : `${tool.tool_number}: Click to pick ${needed}`
+            }
+          >
+            {isComplete ? (
+              <Check className="h-3.5 w-3.5" />
+            ) : isPartial ? (
+              <span className="text-[10px] font-bold">{picked}/{needed}</span>
+            ) : (
+              toolLabel
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+export function PickingInterface({
+  tool,
+  allTools,
+  orderId,
+  lineItems,
+  lineItemsWithPicks,
+  picks: _picks,
+  onRecordPick,
+  onUndoPick,
+  getPicksForTool,
+  getPicksForAllTools,
+  getPickHistory,
+  onPickAllRemainingTools,
+  onReportIssue,
+  hasOpenIssue,
+  onBatchUpdateAllocations,
+  toolFilter = 'all',
+}: PickingInterfaceProps) {
+  void _picks;
+
+  // Filter line items based on toolFilter
+  // When toolFilter is a specific tool ID, only show items that:
+  // 1. Have tool_ids that include this tool, OR
+  // 2. Have no tool_ids (applies to all tools)
+  const filteredLineItems = useMemo(() => {
+    if (toolFilter === 'all') return lineItems;
+
+    return lineItems.filter(item => {
+      // If item has no tool_ids, it applies to all tools
+      if (!item.tool_ids || item.tool_ids.length === 0) return true;
+      // Otherwise, check if the filtered tool is in the list
+      return item.tool_ids.includes(toolFilter);
+    });
+  }, [lineItems, toolFilter]);
+
+  // Create a map for quick lookup of total picks by line item ID
+  const totalPicksMap = useMemo(() => {
+    const map = new Map<string, { totalPicked: number; totalNeeded: number }>();
+    for (const item of lineItemsWithPicks) {
+      map.set(item.id, {
+        totalPicked: item.total_picked,
+        totalNeeded: item.total_qty_needed,
+      });
+    }
+    return map;
+  }, [lineItemsWithPicks]);
+  const { getUserName } = useSettings();
+  const [partialPickItem, setPartialPickItem] = useState<LineItem | null>(null);
+  const [partialQty, setPartialQty] = useState('1');
+  const [partialNote, setPartialNote] = useState('');
+  // Track pending pick quantities per item (item.id -> { qty, note })
+  const [pendingPicks, setPendingPicks] = useState<Map<string, { qty: number; note: string }>>(new Map());
+  const [isSubmitting, setIsSubmitting] = useState<string | null>(null);
+  const [issueReportItem, setIssueReportItem] = useState<LineItem | null>(null);
+  const [distributeItem, setDistributeItem] = useState<LineItem | null>(null);
+  const [swipeStates, setSwipeStates] = useState<Map<string, number>>(new Map());
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
+  const [deleteConfirmPick, setDeleteConfirmPick] = useState<Pick | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [undoToolConfirm, setUndoToolConfirm] = useState<{
+    lineItem: LineItem;
+    toolId: string;
+    toolNumber: string;
+    pickedQty: number;
+  } | null>(null);
+  // Dialog for partial pick options (pick remaining or undo)
+  const [partialToolAction, setPartialToolAction] = useState<{
+    lineItem: LineItem;
+    toolId: string;
+    toolNumber: string;
+    pickedQty: number;
+    remainingQty: number;
+  } | null>(null);
+  const [partialToolCustomQty, setPartialToolCustomQty] = useState('1');
+  const [sortMode, setSortMode] = useState<SortMode>(() => {
+    const saved = localStorage.getItem(SORT_PREFERENCE_KEY);
+    return (saved as SortMode) || 'part_number';
+  });
+
+  // Persist sort preference
+  useEffect(() => {
+    localStorage.setItem(SORT_PREFERENCE_KEY, sortMode);
+  }, [sortMode]);
+
+  const toolPicks = getPicksForTool(tool.id);
+  const allToolsPicksMap = useMemo(() => getPicksForAllTools(), [getPicksForAllTools]);
+
+  // Check if this order has multiple tools
+  const hasMultipleTools = allTools.length > 1;
+
+  // Calculate progress for mobile header
+  const totalItems = filteredLineItems.length;
+  const completedItems = filteredLineItems.filter(item => {
+    const pickedForTool = toolPicks.get(item.id) || 0;
+    return item.qty_per_unit - pickedForTool <= 0;
+  }).length;
+
+  // Sort and group items
+  const { sortedItems, locationGroups } = useMemo(() => {
+    const items = [...filteredLineItems];
+
+    if (sortMode === 'location') {
+      // Sort by location (alphanumeric), items without location go to end
+      items.sort((a, b) => {
+        const locA = a.location || '';
+        const locB = b.location || '';
+
+        // Items without location go to the end
+        if (!locA && locB) return 1;
+        if (locA && !locB) return -1;
+        if (!locA && !locB) return alphanumericCompare(a.part_number, b.part_number);
+
+        const cmp = alphanumericCompare(locA, locB);
+        if (cmp !== 0) return cmp;
+        return alphanumericCompare(a.part_number, b.part_number);
+      });
+
+      // Group by location prefix
+      const groups = new Map<string, LineItem[]>();
+      items.forEach(item => {
+        const prefix = getLocationPrefix(item.location) || 'No Location';
+        if (!groups.has(prefix)) {
+          groups.set(prefix, []);
+        }
+        groups.get(prefix)!.push(item);
+      });
+
+      return { sortedItems: items, locationGroups: groups };
+    } else {
+      // Sort by part number (alphanumeric)
+      items.sort((a, b) => alphanumericCompare(a.part_number, b.part_number));
+      return { sortedItems: items, locationGroups: null };
+    }
+  }, [filteredLineItems, sortMode]);
+
+  const handleQuickPick = useCallback(async (item: LineItem) => {
+    const pickedForTool = toolPicks.get(item.id) || 0;
+    const remaining = item.qty_per_unit - pickedForTool;
+
+    if (remaining <= 0) return;
+
+    // Check if there's a pending pick quantity set for this item
+    const pending = pendingPicks.get(item.id);
+    const qtyToPick = pending ? Math.min(pending.qty, remaining) : remaining;
+    const note = pending?.note;
+
+    setIsSubmitting(item.id);
+    await onRecordPick(item.id, tool.id, qtyToPick, getUserName(), note || undefined);
+
+    // Clear the pending pick after recording
+    if (pending) {
+      setPendingPicks(prev => {
+        const next = new Map(prev);
+        next.delete(item.id);
+        return next;
+      });
+    }
+
+    setIsSubmitting(null);
+  }, [toolPicks, tool.id, onRecordPick, getUserName, pendingPicks]);
+
+  // Pick for a specific tool from the tool indicators
+  const handlePickForSpecificTool = useCallback(async (item: LineItem, targetToolId: string) => {
+    const targetToolPicks = allToolsPicksMap.get(targetToolId);
+    const pickedForTool = targetToolPicks?.get(item.id) || 0;
+    const remaining = item.qty_per_unit - pickedForTool;
+
+    if (remaining <= 0) return;
+
+    setIsSubmitting(item.id);
+    await onRecordPick(item.id, targetToolId, remaining, getUserName());
+    setIsSubmitting(null);
+  }, [allToolsPicksMap, onRecordPick, getUserName]);
+
+  // Pick for all remaining tools at once
+  const handlePickAllTools = useCallback(async (item: LineItem) => {
+    if (onPickAllRemainingTools) {
+      setIsSubmitting(item.id);
+      await onPickAllRemainingTools(item.id);
+      setIsSubmitting(null);
+    }
+  }, [onPickAllRemainingTools]);
+
+  // Count how many tools still need this part
+  const getRemainingToolsCount = useCallback((item: LineItem) => {
+    return allTools.filter(t => {
+      const toolPicks = allToolsPicksMap.get(t.id);
+      const picked = toolPicks?.get(item.id) || 0;
+      return picked < item.qty_per_unit;
+    }).length;
+  }, [allTools, allToolsPicksMap]);
+
+  // Get current allocations for a line item across all tools
+  const getCurrentAllocations = useCallback((lineItemId: string): Map<string, number> => {
+    const allocations = new Map<string, number>();
+    allTools.forEach(t => {
+      const toolPicks = allToolsPicksMap.get(t.id);
+      const picked = toolPicks?.get(lineItemId) || 0;
+      allocations.set(t.id, picked);
+    });
+    return allocations;
+  }, [allTools, allToolsPicksMap]);
+
+  // Check if distribute button should show for an item
+  // Shows for all multi-tool orders with incomplete tools
+  const shouldShowDistribute = useCallback((item: LineItem): boolean => {
+    if (!hasMultipleTools) return false;
+    if (!onBatchUpdateAllocations) return false;
+    // Check if there are incomplete tools
+    const remainingCount = getRemainingToolsCount(item);
+    return remainingCount > 0;
+  }, [hasMultipleTools, onBatchUpdateAllocations, getRemainingToolsCount]);
+
+  // Handle save from distribute dialog
+  const handleDistributeSave = useCallback(async (newAllocations: Map<string, number>): Promise<boolean> => {
+    if (!distributeItem || !onBatchUpdateAllocations) return false;
+    return await onBatchUpdateAllocations(
+      distributeItem.id,
+      newAllocations,
+      getUserName()
+    );
+  }, [distributeItem, onBatchUpdateAllocations, getUserName]);
+
+  // Open undo confirmation dialog for a specific tool
+  const handleOpenUndoToolConfirm = useCallback((item: LineItem, toolId: string, toolNumber: string) => {
+    const toolPicks = allToolsPicksMap.get(toolId);
+    const pickedQty = toolPicks?.get(item.id) || 0;
+    setUndoToolConfirm({ lineItem: item, toolId, toolNumber, pickedQty });
+  }, [allToolsPicksMap]);
+
+  // Open partial tool action dialog (pick remaining or undo)
+  const handleOpenPartialToolAction = useCallback((item: LineItem, toolId: string, toolNumber: string, pickedQty: number, remainingQty: number) => {
+    setPartialToolAction({ lineItem: item, toolId, toolNumber, pickedQty, remainingQty });
+    setPartialToolCustomQty('1'); // Reset to 1 when opening
+  }, []);
+
+  // Pick remaining qty for a partial tool from the dialog
+  const handlePickRemainingFromDialog = async () => {
+    if (!partialToolAction) return;
+
+    setIsSubmitting(partialToolAction.lineItem.id);
+    await onRecordPick(
+      partialToolAction.lineItem.id,
+      partialToolAction.toolId,
+      partialToolAction.remainingQty,
+      getUserName()
+    );
+    setIsSubmitting(null);
+    setPartialToolAction(null);
+  };
+
+  // Pick custom qty for a partial tool from the dialog
+  const handlePickCustomQtyFromDialog = async () => {
+    if (!partialToolAction) return;
+
+    const qty = parseInt(partialToolCustomQty, 10);
+    if (isNaN(qty) || qty <= 0 || qty > partialToolAction.remainingQty) return;
+
+    setIsSubmitting(partialToolAction.lineItem.id);
+    await onRecordPick(
+      partialToolAction.lineItem.id,
+      partialToolAction.toolId,
+      qty,
+      getUserName()
+    );
+    setIsSubmitting(null);
+    setPartialToolAction(null);
+  };
+
+  // Undo picks for a partial tool from the dialog
+  const handleUndoFromPartialDialog = async () => {
+    if (!partialToolAction) return;
+
+    setIsSubmitting(partialToolAction.lineItem.id);
+
+    // Get all picks for this line item and tool
+    const pickHistory = getPickHistory(partialToolAction.lineItem.id, partialToolAction.toolId);
+
+    // Delete all picks
+    for (const pick of pickHistory) {
+      await onUndoPick(pick.id);
+    }
+
+    setIsSubmitting(null);
+    setPartialToolAction(null);
+  };
+
+  // Perform the undo - delete all picks for this line item + tool
+  const handleConfirmUndoTool = async () => {
+    if (!undoToolConfirm) return;
+
+    setIsSubmitting(undoToolConfirm.lineItem.id);
+
+    // Get all picks for this line item and tool
+    const pickHistory = getPickHistory(undoToolConfirm.lineItem.id, undoToolConfirm.toolId);
+
+    // Delete all picks
+    for (const pick of pickHistory) {
+      await onUndoPick(pick.id);
+    }
+
+    setIsSubmitting(null);
+    setUndoToolConfirm(null);
+  };
+
+  // Sets the pending pick quantity (does not record yet - user clicks checkmark to confirm)
+  const handleSetPendingPick = () => {
+    if (!partialPickItem) return;
+
+    const qty = parseInt(partialQty, 10);
+    if (isNaN(qty) || qty <= 0) return;
+
+    // Store the pending pick quantity and note
+    setPendingPicks(prev => {
+      const next = new Map(prev);
+      next.set(partialPickItem.id, { qty, note: partialNote.trim() });
+      return next;
+    });
+
+    setPartialPickItem(null);
+    setPartialQty('1');
+    setPartialNote('');
+  };
+
+  // Clear pending pick for an item
+  const clearPendingPick = (itemId: string) => {
+    setPendingPicks(prev => {
+      const next = new Map(prev);
+      next.delete(itemId);
+      return next;
+    });
+  };
+
+  const openPartialPick = (item: LineItem) => {
+    const pickedForTool = toolPicks.get(item.id) || 0;
+    const remaining = item.qty_per_unit - pickedForTool;
+    setPartialPickItem(item);
+    setPartialQty(String(Math.min(1, remaining)));
+    setPartialNote('');
+  };
+
+  const handleReportIssue = async (
+    lineItemId: string,
+    issueType: IssueType,
+    description?: string
+  ): Promise<boolean> => {
+    if (!onReportIssue) return false;
+    const success = await onReportIssue(
+      lineItemId,
+      orderId,
+      issueType,
+      description,
+      getUserName()
+    );
+    return success;
+  };
+
+  // Toggle expanded state for a line item to show/hide pick history
+  const toggleExpanded = (itemId: string) => {
+    setExpandedItems(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(itemId)) {
+        newSet.delete(itemId);
+      } else {
+        newSet.add(itemId);
+      }
+      return newSet;
+    });
+  };
+
+  // Undo the most recent pick for a line item
+  const handleUndoLastPick = async (item: LineItem) => {
+    const history = getPickHistory(item.id, tool.id);
+    if (history.length === 0) return;
+
+    const lastPick = history[0];
+    setIsSubmitting(item.id);
+    await onUndoPick(lastPick.id);
+    setIsSubmitting(null);
+  };
+
+  // Delete a specific pick record
+  const handleDeletePick = async () => {
+    if (!deleteConfirmPick) return;
+
+    setIsDeleting(true);
+    await onUndoPick(deleteConfirmPick.id);
+    setIsDeleting(false);
+    setDeleteConfirmPick(null);
+  };
+
+  // Swipe handling for mobile
+  const touchStartRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+
+  const handleTouchStart = useCallback((itemId: string, e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    touchStartRef.current.set(itemId, { x: touch.clientX, y: touch.clientY });
+  }, []);
+
+  const handleTouchMove = useCallback((itemId: string, e: React.TouchEvent) => {
+    const start = touchStartRef.current.get(itemId);
+    if (!start) return;
+
+    const touch = e.touches[0];
+    const deltaX = touch.clientX - start.x;
+    const deltaY = Math.abs(touch.clientY - start.y);
+
+    // Only track horizontal swipes (ignore vertical scrolling)
+    if (deltaY > 30) {
+      touchStartRef.current.delete(itemId);
+      setSwipeStates(prev => {
+        const next = new Map(prev);
+        next.delete(itemId);
+        return next;
+      });
+      return;
+    }
+
+    // Only allow right swipes (positive deltaX)
+    if (deltaX > 0) {
+      setSwipeStates(prev => {
+        const next = new Map(prev);
+        next.set(itemId, Math.min(deltaX, SWIPE_THRESHOLD + 50));
+        return next;
+      });
+    }
+  }, []);
+
+  const handleTouchEnd = useCallback(async (item: LineItem) => {
+    const swipeDistance = swipeStates.get(item.id) || 0;
+
+    // Reset swipe state
+    touchStartRef.current.delete(item.id);
+    setSwipeStates(prev => {
+      const next = new Map(prev);
+      next.delete(item.id);
+      return next;
+    });
+
+    // If swiped far enough, trigger quick pick
+    if (swipeDistance >= SWIPE_THRESHOLD) {
+      const pickedForTool = toolPicks.get(item.id) || 0;
+      const remaining = item.qty_per_unit - pickedForTool;
+      if (remaining > 0) {
+        await handleQuickPick(item);
+      }
+    }
+  }, [swipeStates, toolPicks, handleQuickPick]);
+
+  // Render desktop line item row with expandable pick history
+  const renderDesktopLineItem = (item: LineItem) => {
+    const pickedForTool = toolPicks.get(item.id) || 0;
+    const remaining = item.qty_per_unit - pickedForTool;
+    const isComplete = remaining <= 0;
+    const itemHasIssue = hasOpenIssue ? hasOpenIssue(item.id) : false;
+    const isExpanded = expandedItems.has(item.id);
+    const pickHistory = getPickHistory(item.id, tool.id);
+    const hasHistory = pickHistory.length > 0;
+
+    // Get total picks across all tools
+    const totalData = totalPicksMap.get(item.id);
+    const totalPicked = totalData?.totalPicked || 0;
+    const totalNeeded = totalData?.totalNeeded || item.total_qty_needed;
+    const allToolsComplete = totalPicked >= totalNeeded;
+
+    // Count remaining tools that need this part
+    const remainingToolsCount = getRemainingToolsCount(item);
+
+    return (
+      <div key={item.id} className="hidden md:block space-y-0">
+        {/* Main Row */}
+        <div
+          className={cn(
+            'grid gap-2 px-3 py-3 rounded-lg border items-center grid-cols-12',
+            allToolsComplete ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800' : 'bg-white dark:bg-card',
+            itemHasIssue && !allToolsComplete && 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800',
+            isSubmitting === item.id && 'opacity-50',
+            isExpanded && 'rounded-b-none'
+          )}
+        >
+          {/* Expand Toggle + Part Number */}
+          <div className="col-span-2">
+            <div className="flex items-center gap-2">
+              {hasHistory ? (
+                <button
+                  onClick={() => toggleExpanded(item.id)}
+                  className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors"
+                  title={isExpanded ? 'Hide pick history' : 'Show pick history'}
+                >
+                  {isExpanded ? (
+                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                  )}
+                </button>
+              ) : (
+                <div className="w-5" /> // Spacer for alignment
+              )}
+              <span className="font-mono font-medium">{item.part_number}</span>
+              {itemHasIssue && (
+                <Badge variant="destructive" className="gap-1 text-xs">
+                  <AlertTriangle className="h-3 w-3" />
+                  Issue
+                </Badge>
+              )}
+            </div>
+          </div>
+
+          {/* Description */}
+          <div className="col-span-2 text-sm text-muted-foreground truncate">
+            {item.description || '-'}
+          </div>
+
+          {/* Location */}
+          <div className="col-span-2">
+            {item.location ? (
+              <Badge variant="outline" className="gap-1">
+                <MapPin className="h-3 w-3" />
+                {item.location}
+              </Badge>
+            ) : (
+              <span className="text-muted-foreground text-sm">-</span>
+            )}
+          </div>
+
+          {/* Stock (qty_available) */}
+          <div className="col-span-1 text-center">
+            {item.qty_available !== null && item.qty_available !== undefined ? (
+              <span
+                className={cn(
+                  'text-sm font-medium',
+                  item.qty_available < totalNeeded
+                    ? 'text-amber-600 dark:text-amber-400'
+                    : 'text-green-600 dark:text-green-400'
+                )}
+                title={item.qty_available < totalNeeded ? 'Low stock - may not have enough' : 'Sufficient stock'}
+              >
+                {item.qty_available}
+              </span>
+            ) : (
+              <span className="text-muted-foreground text-sm">-</span>
+            )}
+          </div>
+
+          {/* Tool Status Indicators - only show when multiple tools */}
+          {hasMultipleTools && (
+            <div className="col-span-2">
+              <div className="flex items-center gap-2">
+                <ToolStatusIndicators
+                  tools={allTools}
+                  lineItem={item}
+                  picksMap={allToolsPicksMap}
+                  currentToolId={tool.id}
+                  onPickTool={(toolId) => handlePickForSpecificTool(item, toolId)}
+                  onUndoTool={(toolId, toolNumber) => handleOpenUndoToolConfirm(item, toolId, toolNumber)}
+                  onPartialToolClick={(toolId, toolNumber, picked, remaining) => handleOpenPartialToolAction(item, toolId, toolNumber, picked, remaining)}
+                  disabled={isSubmitting === item.id}
+                />
+                <span className="text-sm text-muted-foreground">
+                  {totalPicked}/{totalNeeded}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Total Column - only show for single tool orders */}
+          {!hasMultipleTools && (
+            <div className="col-span-2 text-center">
+              <div className="flex items-center justify-center gap-1">
+                <span
+                  className={cn(
+                    'font-semibold',
+                    isComplete ? 'text-green-600' : ''
+                  )}
+                >
+                  {pickedForTool}
+                </span>
+                <span className="text-muted-foreground text-sm">/</span>
+                <span className="text-sm">{item.qty_per_unit}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className={cn("flex justify-end gap-1", "col-span-3")}>
+            {/* Undo last pick button - show when there are picks */}
+            {hasHistory && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => handleUndoLastPick(item)}
+                disabled={isSubmitting === item.id}
+                title="Undo last pick"
+              >
+                <Undo2 className="h-4 w-4" />
+              </Button>
+            )}
+
+            {/* Distribute/Pick button - show for multi-tool orders */}
+            {shouldShowDistribute(item) ? (
+              <Button
+                size="sm"
+                variant="success"
+                onClick={() => setDistributeItem(item)}
+                disabled={isSubmitting === item.id}
+                title="Pick for all tools"
+              >
+                <SplitSquareVertical className="h-4 w-4 mr-1" />
+                Pick
+              </Button>
+            ) : (
+              <>
+                {/* Pick All Tools button - only show when multiple tools and some remaining */}
+                {hasMultipleTools && remainingToolsCount > 0 && onPickAllRemainingTools && (
+                  <Button
+                    size="sm"
+                    variant="success"
+                    onClick={() => handlePickAllTools(item)}
+                    disabled={isSubmitting === item.id}
+                    title={`Pick for all ${remainingToolsCount} remaining tools`}
+                  >
+                    <Layers className="h-4 w-4 mr-1" />
+                    All ({remainingToolsCount})
+                  </Button>
+                )}
+
+                {/* Pick This Tool button - when not complete for current tool */}
+                {!isComplete && (
+                  <>
+                    {/* Show pending qty indicator and clear button if a pending pick is set */}
+                    {pendingPicks.has(item.id) && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => clearPendingPick(item.id)}
+                        disabled={isSubmitting === item.id}
+                        title="Clear pending quantity"
+                        className="text-muted-foreground"
+                      >
+                        ✕
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant={pendingPicks.has(item.id) ? "default" : (hasMultipleTools ? "outline" : "success")}
+                      onClick={() => handleQuickPick(item)}
+                      disabled={isSubmitting === item.id}
+                      title={pendingPicks.has(item.id)
+                        ? `Pick ${pendingPicks.get(item.id)!.qty} (custom qty set)`
+                        : `Pick all ${remaining} for this tool`}
+                      className={pendingPicks.has(item.id) ? "bg-blue-600 hover:bg-blue-700" : ""}
+                    >
+                      <Check className="h-4 w-4 mr-1" />
+                      {pendingPicks.has(item.id) ? pendingPicks.get(item.id)!.qty : remaining}
+                    </Button>
+                    {item.qty_per_unit > 1 && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openPartialPick(item)}
+                        disabled={isSubmitting === item.id}
+                        title="Set pick quantity"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </>
+                )}
+              </>
+            )}
+
+            {/* Report Issue button */}
+            {onReportIssue && !allToolsComplete && (
+              <Button
+                size="sm"
+                variant={itemHasIssue ? "destructive" : "ghost"}
+                onClick={() => setIssueReportItem(item)}
+                disabled={isSubmitting === item.id}
+                title="Report issue"
+              >
+                <AlertTriangle className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Pick History Panel */}
+        {isExpanded && hasHistory && (
+          <div className="border border-t-0 rounded-b-lg bg-gray-50 dark:bg-gray-900 px-4 py-3">
+            <div className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-2">
+              <Clock className="h-4 w-4" />
+              Pick History ({pickHistory.length} {pickHistory.length === 1 ? 'record' : 'records'})
+            </div>
+            <div className="space-y-2">
+              {pickHistory.map((pick, index) => (
+                <div
+                  key={pick.id}
+                  className={cn(
+                    'flex items-center justify-between bg-white dark:bg-card rounded-md px-3 py-2 border',
+                    index === 0 && 'border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/20'
+                  )}
+                >
+                  <div className="flex items-center gap-4">
+                    <Badge variant={index === 0 ? 'default' : 'secondary'}>
+                      {pick.qty_picked}x
+                    </Badge>
+                    <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                      <User className="h-3 w-3" />
+                      {pick.picked_by || 'Unknown'}
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      {formatDateTime(pick.picked_at)}
+                    </div>
+                    {pick.notes && (
+                      <div className="text-sm italic text-muted-foreground">
+                        "{pick.notes}"
+                      </div>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
+                    onClick={() => setDeleteConfirmPick(pick)}
+                    title="Delete this pick record"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Render mobile line item with swipe support
+  const renderMobileLineItem = (item: LineItem) => {
+    const pickedForTool = toolPicks.get(item.id) || 0;
+    const remaining = item.qty_per_unit - pickedForTool;
+    const isComplete = remaining <= 0;
+    const itemHasIssue = hasOpenIssue ? hasOpenIssue(item.id) : false;
+    const swipeOffset = swipeStates.get(item.id) || 0;
+
+    // Get total picks across all tools
+    const totalData = totalPicksMap.get(item.id);
+    const totalPicked = totalData?.totalPicked || 0;
+    const totalNeeded = totalData?.totalNeeded || item.total_qty_needed;
+    const allToolsComplete = totalPicked >= totalNeeded;
+
+    // Count remaining tools that need this part
+    const remainingToolsCount = getRemainingToolsCount(item);
+
+    return (
+      <div
+        key={`mobile-${item.id}`}
+        className="relative overflow-hidden rounded-xl md:hidden"
+      >
+        {/* Swipe indicator background */}
+        <div
+          className={cn(
+            "absolute inset-0 bg-green-500 flex items-center pl-4 transition-opacity",
+            swipeOffset > 0 ? "opacity-100" : "opacity-0"
+          )}
+        >
+          <div className="flex items-center gap-2 text-white font-semibold">
+            <Check className="h-6 w-6" />
+            <span className="text-lg">Pick {remaining}</span>
+          </div>
+        </div>
+
+        {/* Main item content */}
+        <div
+          className={cn(
+            'relative flex flex-col p-4 border rounded-xl shadow-sm bg-white dark:bg-card transition-transform',
+            allToolsComplete ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800' : '',
+            itemHasIssue && !allToolsComplete && 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800',
+            isSubmitting === item.id && 'opacity-50'
+          )}
+          style={{
+            transform: `translateX(${swipeOffset}px)`,
+          }}
+          onTouchStart={(e) => !isComplete && handleTouchStart(item.id, e)}
+          onTouchMove={(e) => !isComplete && handleTouchMove(item.id, e)}
+          onTouchEnd={() => !isComplete && handleTouchEnd(item)}
+        >
+          {/* Top row: Part number and status */}
+          <div className="flex items-start justify-between mb-2">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-mono font-bold text-xl tracking-tight">
+                  {item.part_number}
+                </span>
+                {itemHasIssue && (
+                  <Badge variant="destructive" className="gap-1 text-xs">
+                    <AlertTriangle className="h-3 w-3" />
+                    Issue
+                  </Badge>
+                )}
+              </div>
+              {item.description && (
+                <p className="text-sm text-muted-foreground mt-0.5 line-clamp-2">
+                  {item.description}
+                </p>
+              )}
+            </div>
+            {allToolsComplete && (
+              <CheckCircle2 className="h-7 w-7 text-green-600 flex-shrink-0 ml-2" />
+            )}
+          </div>
+
+          {/* Location row */}
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              {item.location ? (
+                <Badge variant="outline" className="gap-1.5 text-sm py-1.5 px-3">
+                  <MapPin className="h-4 w-4" />
+                  {item.location}
+                </Badge>
+              ) : (
+                <span className="text-muted-foreground text-sm">No location</span>
+              )}
+              {/* Stock indicator */}
+              {item.qty_available !== null && item.qty_available !== undefined && (
+                <span
+                  className={cn(
+                    'text-xs px-2 py-1 rounded-full font-medium',
+                    item.qty_available < totalNeeded
+                      ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                      : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                  )}
+                  title={item.qty_available < totalNeeded ? 'Low stock' : 'In stock'}
+                >
+                  Stock: {item.qty_available}
+                </span>
+              )}
+            </div>
+            {/* Quantity display */}
+            <div className="text-right">
+              <div className="flex items-baseline gap-1 justify-end">
+                <span
+                  className={cn(
+                    'text-xl font-bold tabular-nums',
+                    allToolsComplete ? 'text-green-600' : 'text-primary'
+                  )}
+                >
+                  {totalPicked}
+                </span>
+                <span className="text-muted-foreground">/</span>
+                <span className="text-lg tabular-nums">{totalNeeded}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Tool Status Indicators - only show when multiple tools */}
+          {hasMultipleTools && (
+            <div className="flex items-center justify-between mb-4 py-2 px-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
+              <span className="text-sm text-muted-foreground">Tools:</span>
+              <div className="flex items-center gap-2">
+                <ToolStatusIndicators
+                  tools={allTools}
+                  lineItem={item}
+                  picksMap={allToolsPicksMap}
+                  currentToolId={tool.id}
+                  onPickTool={(toolId) => handlePickForSpecificTool(item, toolId)}
+                  onUndoTool={(toolId, toolNumber) => handleOpenUndoToolConfirm(item, toolId, toolNumber)}
+                  onPartialToolClick={(toolId, toolNumber, picked, remaining) => handleOpenPartialToolAction(item, toolId, toolNumber, picked, remaining)}
+                  disabled={isSubmitting === item.id}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Bottom row: Actions */}
+          {!allToolsComplete && (
+            <div className="flex flex-col gap-2">
+              {/* Distribute button - only show when shortage detected and multiple tools */}
+              {shouldShowDistribute(item) ? (
+                <div className="flex gap-3">
+                  <Button
+                    size="touch-lg"
+                    variant="success"
+                    onClick={() => setDistributeItem(item)}
+                    disabled={isSubmitting === item.id}
+                    className="flex-1 gap-2 h-14"
+                  >
+                    <SplitSquareVertical className="h-6 w-6" />
+                    <span className="text-lg">Pick</span>
+                  </Button>
+                  {onReportIssue && (
+                    <Button
+                      size="touch-lg"
+                      variant={itemHasIssue ? "destructive" : "outline"}
+                      onClick={() => setIssueReportItem(item)}
+                      disabled={isSubmitting === item.id}
+                      className="px-5 h-14"
+                    >
+                      <AlertTriangle className="h-6 w-6" />
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <>
+                  {/* Pick All Tools button - only show when multiple tools and some remaining */}
+                  {hasMultipleTools && remainingToolsCount > 0 && onPickAllRemainingTools && (
+                    <Button
+                      size="touch-lg"
+                      variant="success"
+                      onClick={() => handlePickAllTools(item)}
+                      disabled={isSubmitting === item.id}
+                      className="w-full gap-2 h-14"
+                    >
+                      <Layers className="h-6 w-6" />
+                      <span className="text-lg">Pick All ({remainingToolsCount} tools)</span>
+                    </Button>
+                  )}
+
+                  {/* Pick This Tool Only button - when not complete for current tool */}
+                  {!isComplete && (
+                    <div className="flex gap-3">
+                      {/* Show clear button if pending pick is set */}
+                      {pendingPicks.has(item.id) && (
+                        <Button
+                          size="touch-lg"
+                          variant="ghost"
+                          onClick={() => clearPendingPick(item.id)}
+                          disabled={isSubmitting === item.id}
+                          className="px-4 h-14"
+                          title="Clear pending quantity"
+                        >
+                          ✕
+                        </Button>
+                      )}
+                      <Button
+                        size="touch-lg"
+                        variant={pendingPicks.has(item.id) ? "default" : (hasMultipleTools ? "outline" : "success")}
+                        onClick={() => handleQuickPick(item)}
+                        disabled={isSubmitting === item.id}
+                        className={cn("flex-1 gap-2 h-14", pendingPicks.has(item.id) && "bg-blue-600 hover:bg-blue-700")}
+                      >
+                        <Check className="h-6 w-6" />
+                        <span className="text-lg">
+                          {pendingPicks.has(item.id)
+                            ? `Pick ${pendingPicks.get(item.id)!.qty}`
+                            : hasMultipleTools
+                              ? `This Tool (${remaining})`
+                              : `Pick All (${remaining})`}
+                        </span>
+                      </Button>
+                      {item.qty_per_unit > 1 && (
+                        <Button
+                          size="touch-lg"
+                          variant="outline"
+                          onClick={() => openPartialPick(item)}
+                          disabled={isSubmitting === item.id}
+                          className="px-5 h-14"
+                        >
+                          <Plus className="h-6 w-6" />
+                        </Button>
+                      )}
+                      {onReportIssue && (
+                        <Button
+                          size="touch-lg"
+                          variant={itemHasIssue ? "destructive" : "outline"}
+                          onClick={() => setIssueReportItem(item)}
+                          disabled={isSubmitting === item.id}
+                          className="px-5 h-14"
+                        >
+                          <AlertTriangle className="h-6 w-6" />
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Swipe hint - hide when distribute is shown since swipe picks full qty */}
+          {!isComplete && swipeOffset === 0 && !shouldShowDistribute(item) && (
+            <div className="flex items-center justify-center mt-3 text-xs text-muted-foreground">
+              <ChevronRight className="h-4 w-4 animate-pulse" />
+              <span>Swipe right to quick pick</span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // Combined render function for both desktop and mobile
+  const renderLineItem = (item: LineItem) => (
+    <>
+      {renderDesktopLineItem(item)}
+      {renderMobileLineItem(item)}
+    </>
+  );
+
+  return (
+    <div className="picking-interface relative pb-24 md:pb-0">
+      {/* Sticky Header with Tool Info - Mobile */}
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-b md:hidden -mx-4 px-4">
+        <div className="py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3 min-w-0">
+              <Package className="h-6 w-6 text-primary flex-shrink-0" />
+              <div className="min-w-0">
+                <h2 className="font-bold text-xl truncate">{tool.tool_number}</h2>
+                <p className="text-sm text-muted-foreground truncate">{tool.serial_number ? `SN: ${tool.serial_number}` : 'Tool Pick'}</p>
+              </div>
+            </div>
+            <div className="text-right flex-shrink-0 ml-3">
+              <div className="text-3xl font-bold text-primary tabular-nums">{completedItems}/{totalItems}</div>
+              <p className="text-xs text-muted-foreground">Items picked</p>
+            </div>
+          </div>
+          <div className="mt-2 h-2.5 bg-muted rounded-full overflow-hidden">
+            <div className="h-full bg-green-500 transition-all duration-300" style={{ width: `${totalItems > 0 ? (completedItems / totalItems) * 100 : 0}%` }} />
+          </div>
+        </div>
+        {/* Mobile Sort Controls */}
+        <div className="flex items-center gap-2 pb-3">
+          <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
+          <Select value={sortMode} onValueChange={(v) => setSortMode(v as SortMode)}>
+            <SelectTrigger className="flex-1 h-10">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="part_number">Sort by Part Number</SelectItem>
+              <SelectItem value="location">Sort by Location</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {/* Desktop Sort Controls */}
+      <div className="hidden md:flex items-center justify-end gap-2 mb-2">
+        <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
+        <Select value={sortMode} onValueChange={(v) => setSortMode(v as SortMode)}>
+          <SelectTrigger className="w-48">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="part_number">Sort by Part Number</SelectItem>
+            <SelectItem value="location">Sort by Location</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Desktop Table Header */}
+      <div className={cn(
+        "hidden md:grid gap-2 px-3 py-2 bg-muted rounded-t-lg text-sm font-medium",
+        hasMultipleTools ? "grid-cols-12" : "grid-cols-12"
+      )}>
+        <div className="col-span-2">Part Number</div>
+        <div className="col-span-2">Description</div>
+        <div className="col-span-2">Location</div>
+        <div className="col-span-1 text-center">Stock</div>
+        {hasMultipleTools ? (
+          <>
+            <div className="col-span-2">Tools</div>
+            <div className="col-span-3 text-right">Actions</div>
+          </>
+        ) : (
+          <>
+            <div className="col-span-2 text-center">Qty</div>
+            <div className="col-span-3 text-center">Actions</div>
+          </>
+        )}
+      </div>
+
+      {/* Line Items */}
+      <div className="space-y-3 md:space-y-1 mt-3 md:mt-0">
+        {sortMode === 'location' && locationGroups ? (
+          Array.from(locationGroups.entries()).map(([prefix, items]) => (
+            <div key={prefix} className="space-y-3 md:space-y-1">
+              {/* Location Group Header */}
+              <div className="flex items-center gap-2 px-4 py-3 md:px-3 md:py-2 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-xl md:rounded-lg mt-4 md:mt-3 first:mt-0">
+                <MapPin className="h-5 w-5 md:h-4 md:w-4 text-blue-600" />
+                <span className="font-semibold text-lg md:text-base text-blue-800 dark:text-blue-200">{prefix}</span>
+                <Badge variant="secondary" className="ml-auto text-sm">{items.length} {items.length === 1 ? 'item' : 'items'}</Badge>
+              </div>
+              {items.map(renderLineItem)}
+            </div>
+          ))
+        ) : (
+          sortedItems.map(renderLineItem)
+        )}
+      </div>
+
+      {sortedItems.length === 0 && (
+        <div className="py-16 md:py-8 text-center text-muted-foreground">
+          <Package className="h-16 w-16 md:h-12 md:w-12 mx-auto mb-4 opacity-50" />
+          <p className="text-xl md:text-base">No line items for this order</p>
+        </div>
+      )}
+
+      {/* Mobile Bottom Action Bar */}
+      <div className="fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-t p-4 md:hidden safe-area-bottom z-20">
+        <div className="flex items-center justify-between gap-4 max-w-lg mx-auto">
+          <div className="flex-1">
+            <div className="text-sm text-muted-foreground">Progress</div>
+            <div className="font-semibold text-lg">{completedItems} of {totalItems} items</div>
+          </div>
+          {completedItems === totalItems && totalItems > 0 ? (
+            <Badge variant="success" className="text-lg py-3 px-5">
+              <CheckCircle2 className="h-6 w-6 mr-2" />
+              All Picked!
+            </Badge>
+          ) : (
+            <div className="text-right">
+              <div className="text-sm text-muted-foreground">Remaining</div>
+              <div className="text-2xl font-bold text-primary tabular-nums">{totalItems - completedItems}</div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Set Pick Quantity Dialog */}
+      <Dialog
+        open={partialPickItem !== null}
+        onOpenChange={(open) => !open && setPartialPickItem(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Set Pick Quantity</DialogTitle>
+            <DialogDescription>
+              Set the quantity, then click the checkmark button to confirm the pick.
+            </DialogDescription>
+          </DialogHeader>
+
+          {partialPickItem && (
+            <div className="space-y-4 py-4">
+              <div>
+                <p className="font-medium">{partialPickItem.part_number}</p>
+                <p className="text-sm text-muted-foreground">
+                  {partialPickItem.description}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-4">
+                <div className="space-y-2 flex-1">
+                  <Label htmlFor="partialQty">Quantity to Pick</Label>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() =>
+                        setPartialQty(String(Math.max(1, parseInt(partialQty) - 1)))
+                      }
+                    >
+                      <Minus className="h-4 w-4" />
+                    </Button>
+                    <Input
+                      id="partialQty"
+                      type="number"
+                      min="1"
+                      max={
+                        partialPickItem.qty_per_unit -
+                        (toolPicks.get(partialPickItem.id) || 0)
+                      }
+                      value={partialQty}
+                      onChange={(e) => setPartialQty(e.target.value)}
+                      className="w-20 text-center"
+                    />
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() =>
+                        setPartialQty(
+                          String(
+                            Math.min(
+                              parseInt(partialQty) + 1,
+                              partialPickItem.qty_per_unit -
+                                (toolPicks.get(partialPickItem.id) || 0)
+                            )
+                          )
+                        )
+                      }
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <p className="text-sm text-muted-foreground">Remaining</p>
+                  <p className="text-2xl font-bold">
+                    {partialPickItem.qty_per_unit -
+                      (toolPicks.get(partialPickItem.id) || 0)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="partialNote">
+                  <MessageSquare className="inline h-4 w-4 mr-1" />
+                  Note (optional)
+                </Label>
+                <Textarea
+                  id="partialNote"
+                  placeholder="Why is this a partial pick?"
+                  value={partialNote}
+                  onChange={(e) => setPartialNote(e.target.value)}
+                  rows={2}
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPartialPickItem(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSetPendingPick}
+              disabled={
+                !partialQty ||
+                parseInt(partialQty) <= 0
+              }
+            >
+              Set Qty
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Pick Confirmation Dialog */}
+      <Dialog
+        open={deleteConfirmPick !== null}
+        onOpenChange={(open) => !open && setDeleteConfirmPick(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Pick Record</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this pick record? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          {deleteConfirmPick && (
+            <div className="py-4">
+              <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Badge>{deleteConfirmPick.qty_picked}x picked</Badge>
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  <span className="font-medium">By:</span> {deleteConfirmPick.picked_by || 'Unknown'}
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  <span className="font-medium">At:</span> {formatDateTime(deleteConfirmPick.picked_at)}
+                </div>
+                {deleteConfirmPick.notes && (
+                  <div className="text-sm text-muted-foreground">
+                    <span className="font-medium">Note:</span> {deleteConfirmPick.notes}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirmPick(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeletePick}
+              disabled={isDeleting}
+            >
+              {isDeleting ? 'Deleting...' : 'Delete Pick'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Undo Tool Pick Confirmation Dialog */}
+      <Dialog
+        open={undoToolConfirm !== null}
+        onOpenChange={(open) => !open && setUndoToolConfirm(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Undo Pick for {undoToolConfirm?.toolNumber}?</DialogTitle>
+            <DialogDescription>
+              This will remove all picks for this part on the selected tool.
+            </DialogDescription>
+          </DialogHeader>
+
+          {undoToolConfirm && (
+            <div className="py-4">
+              <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 space-y-2">
+                <div className="font-medium">{undoToolConfirm.lineItem.part_number}</div>
+                {undoToolConfirm.lineItem.description && (
+                  <div className="text-sm text-muted-foreground">
+                    {undoToolConfirm.lineItem.description}
+                  </div>
+                )}
+                <div className="flex items-center gap-2 mt-2">
+                  <Badge variant="destructive">{undoToolConfirm.pickedQty}x will be removed</Badge>
+                  <span className="text-sm text-muted-foreground">
+                    from {undoToolConfirm.toolNumber}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUndoToolConfirm(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleConfirmUndoTool}
+              disabled={isSubmitting === undoToolConfirm?.lineItem.id}
+            >
+              {isSubmitting === undoToolConfirm?.lineItem.id ? 'Undoing...' : 'Undo Pick'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Partial Tool Action Dialog */}
+      <Dialog
+        open={partialToolAction !== null}
+        onOpenChange={(open) => !open && setPartialToolAction(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Partial Pick - {partialToolAction?.toolNumber}</DialogTitle>
+            <DialogDescription>
+              This tool has {partialToolAction?.pickedQty} of {(partialToolAction?.pickedQty || 0) + (partialToolAction?.remainingQty || 0)} picked.
+            </DialogDescription>
+          </DialogHeader>
+
+          {partialToolAction && (
+            <div className="py-4 space-y-4">
+              <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 space-y-2">
+                <div className="font-medium">{partialToolAction.lineItem.part_number}</div>
+                {partialToolAction.lineItem.description && (
+                  <div className="text-sm text-muted-foreground">
+                    {partialToolAction.lineItem.description}
+                  </div>
+                )}
+                <div className="flex items-center gap-2 mt-2">
+                  <Badge variant="secondary" className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+                    {partialToolAction.pickedQty} picked
+                  </Badge>
+                  <Badge variant="outline">
+                    {partialToolAction.remainingQty} remaining
+                  </Badge>
+                </div>
+              </div>
+
+              {/* Custom quantity picker */}
+              <div className="border rounded-lg p-4 space-y-3">
+                <Label className="text-sm font-medium">Pick a custom amount:</Label>
+                <div className="flex items-center gap-3">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setPartialToolCustomQty(String(Math.max(1, parseInt(partialToolCustomQty) - 1)))}
+                    disabled={parseInt(partialToolCustomQty) <= 1}
+                  >
+                    <Minus className="h-4 w-4" />
+                  </Button>
+                  <Input
+                    type="number"
+                    min="1"
+                    max={partialToolAction.remainingQty}
+                    value={partialToolCustomQty}
+                    onChange={(e) => setPartialToolCustomQty(e.target.value)}
+                    className="w-20 text-center"
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setPartialToolCustomQty(String(Math.min(parseInt(partialToolCustomQty) + 1, partialToolAction.remainingQty)))}
+                    disabled={parseInt(partialToolCustomQty) >= partialToolAction.remainingQty}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    onClick={handlePickCustomQtyFromDialog}
+                    disabled={
+                      isSubmitting === partialToolAction.lineItem.id ||
+                      parseInt(partialToolCustomQty) <= 0 ||
+                      parseInt(partialToolCustomQty) > partialToolAction.remainingQty
+                    }
+                  >
+                    <Check className="h-4 w-4 mr-2" />
+                    Pick {partialToolCustomQty}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setPartialToolAction(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleUndoFromPartialDialog}
+              disabled={isSubmitting === partialToolAction?.lineItem.id}
+            >
+              <Undo2 className="h-4 w-4 mr-2" />
+              Undo ({partialToolAction?.pickedQty})
+            </Button>
+            <Button
+              variant="success"
+              onClick={handlePickRemainingFromDialog}
+              disabled={isSubmitting === partialToolAction?.lineItem.id}
+            >
+              <Check className="h-4 w-4 mr-2" />
+              Pick All Remaining ({partialToolAction?.remainingQty})
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Report Issue Dialog */}
+      <ReportIssueDialog
+        open={issueReportItem !== null}
+        onOpenChange={(open) => !open && setIssueReportItem(null)}
+        lineItem={issueReportItem}
+        onSubmit={handleReportIssue}
+      />
+
+      {/* Distribute Inventory Dialog */}
+      <DistributeInventoryDialog
+        open={distributeItem !== null}
+        onOpenChange={(open) => !open && setDistributeItem(null)}
+        lineItem={distributeItem}
+        tools={allTools}
+        currentAllocations={distributeItem ? getCurrentAllocations(distributeItem.id) : new Map()}
+        availableStock={distributeItem?.qty_available ?? 0}
+        onSave={handleDistributeSave}
+      />
+    </div>
+  );
+}

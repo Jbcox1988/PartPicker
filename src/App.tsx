@@ -1,0 +1,37 @@
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { MainLayout } from '@/components/layout/MainLayout';
+import { Dashboard } from '@/pages/Dashboard';
+import { Orders } from '@/pages/Orders';
+import { OrderDetail } from '@/pages/OrderDetail';
+import { ConsolidatedParts } from '@/pages/ConsolidatedParts';
+import { ItemsToOrder } from '@/pages/ItemsToOrder';
+import { Import } from '@/pages/Import';
+import { Settings } from '@/pages/Settings';
+import { Issues } from '@/pages/Issues';
+import { OfflineIndicator, InstallPrompt, UpdatePrompt } from '@/components/pwa';
+
+function App() {
+  return (
+    <BrowserRouter>
+      <MainLayout>
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/orders" element={<Orders />} />
+          <Route path="/orders/:id" element={<OrderDetail />} />
+          <Route path="/parts" element={<ConsolidatedParts />} />
+          <Route path="/items-to-order" element={<ItemsToOrder />} />
+          <Route path="/issues" element={<Issues />} />
+          <Route path="/import" element={<Import />} />
+          <Route path="/settings" element={<Settings />} />
+        </Routes>
+      </MainLayout>
+
+      {/* PWA Components */}
+      <OfflineIndicator />
+      <InstallPrompt />
+      <UpdatePrompt />
+    </BrowserRouter>
+  );
+}
+
+export default App;

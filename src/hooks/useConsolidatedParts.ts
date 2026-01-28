@@ -1,0 +1,145 @@
+import { useState, useEffect, useCallback } from 'react';
+import { supabase } from '@/lib/supabase';
+import type { ConsolidatedPart } from '@/types';
+
+export type OrderStatusFilter = 'all' | 'active' | 'complete';
+
+export function useConsolidatedParts(statusFilter: OrderStatusFilter = 'all') {
+  const [parts, setParts] = useState<ConsolidatedPart[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchParts = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Build query based on status filter
+      let query = supabase
+        .from('line_items')
+        .select(`
+          id,
+          part_number,
+          description,
+          location,
+          total_qty_needed,
+          order_id,
+          orders!inner (
+            id,
+            so_number,
+            status
+          )
+        `)
+        .neq('orders.status', 'cancelled'); // Always exclude cancelled orders
+
+      // Apply additional status filter if not 'all'
+      if (statusFilter === 'active') {
+        query = query.eq('orders.status', 'active');
+      } else if (statusFilter === 'complete') {
+        query = query.eq('orders.status', 'complete');
+      }
+
+      const { data: lineItemsData, error: lineItemsError } = await query;
+
+      if (lineItemsError) throw lineItemsError;
+
+      // Fetch all picks
+      const { data: picksData, error: picksError } = await supabase
+        .from('picks')
+        .select('line_item_id, qty_picked');
+
+      if (picksError) throw picksError;
+
+      // Calculate picks per line item
+      const picksByLineItem = new Map<string, number>();
+      for (const pick of picksData || []) {
+        const current = picksByLineItem.get(pick.line_item_id) || 0;
+        picksByLineItem.set(pick.line_item_id, current + pick.qty_picked);
+      }
+
+      // Group by part number
+      const partsMap = new Map<string, ConsolidatedPart>();
+
+      for (const item of lineItemsData || []) {
+        const orderInfo = item.orders as any;
+        const picked = picksByLineItem.get(item.id) || 0;
+
+        const existing = partsMap.get(item.part_number);
+
+        if (existing) {
+          existing.total_needed += item.total_qty_needed;
+          existing.total_picked += picked;
+          existing.remaining = existing.total_needed - existing.total_picked;
+          existing.orders.push({
+            order_id: item.order_id,
+            so_number: orderInfo.so_number,
+            needed: item.total_qty_needed,
+            picked: picked,
+            line_item_id: item.id,
+          });
+        } else {
+          partsMap.set(item.part_number, {
+            part_number: item.part_number,
+            description: item.description,
+            location: item.location,
+            total_needed: item.total_qty_needed,
+            total_picked: picked,
+            remaining: item.total_qty_needed - picked,
+            orders: [{
+              order_id: item.order_id,
+              so_number: orderInfo.so_number,
+              needed: item.total_qty_needed,
+              picked: picked,
+              line_item_id: item.id,
+            }],
+          });
+        }
+      }
+
+      // Convert to array and sort by part number
+      const consolidatedParts = Array.from(partsMap.values())
+        .sort((a, b) => a.part_number.localeCompare(b.part_number));
+
+      setParts(consolidatedParts);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch consolidated parts');
+    } finally {
+      setLoading(false);
+    }
+  }, [statusFilter]);
+
+  useEffect(() => {
+    fetchParts();
+
+    // Subscribe to real-time updates
+    const subscription = supabase
+      .channel('consolidated-parts')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'picks' },
+        () => fetchParts()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'line_items' },
+        () => fetchParts()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'orders' },
+        () => fetchParts()
+      )
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [fetchParts]);
+
+  return {
+    parts,
+    loading,
+    error,
+    refresh: fetchParts,
+  };
+}
