@@ -701,21 +701,6 @@ export function OrderDetail() {
             </Button>
           </div>
 
-          {/* Tool Display Row */}
-          <div className="flex items-center gap-2 flex-wrap text-sm">
-            <span className="text-muted-foreground">Tools:</span>
-            {tools.map((tool) => (
-              <Badge key={tool.id} variant="outline" className="gap-1">
-                {tool.tool_number}
-                {tool.serial_number && (
-                  <span className="text-muted-foreground font-normal">
-                    (SN: {tool.serial_number})
-                  </span>
-                )}
-              </Badge>
-            ))}
-          </div>
-
           {/* Unified Picking Interface */}
           <Card>
             <CardContent className="pt-4">
