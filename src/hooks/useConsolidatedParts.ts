@@ -43,12 +43,20 @@ export function useConsolidatedParts(statusFilter: OrderStatusFilter = 'all') {
 
       if (lineItemsError) throw lineItemsError;
 
-      // Fetch all picks
-      const { data: picksData, error: picksError } = await supabase
-        .from('picks')
-        .select('line_item_id, qty_picked');
+      // Extract line item IDs to filter picks server-side
+      const lineItemIds = (lineItemsData || []).map(item => item.id);
 
-      if (picksError) throw picksError;
+      // Fetch picks only for the relevant line items (server-side filtering)
+      let picksData: { line_item_id: string; qty_picked: number }[] = [];
+      if (lineItemIds.length > 0) {
+        const { data, error: picksError } = await supabase
+          .from('picks')
+          .select('line_item_id, qty_picked')
+          .in('line_item_id', lineItemIds);
+
+        if (picksError) throw picksError;
+        picksData = data || [];
+      }
 
       // Calculate picks per line item
       const picksByLineItem = new Map<string, number>();

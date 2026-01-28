@@ -111,7 +111,10 @@ export function ConsolidatedParts() {
         if (!groups.has(prefix)) {
           groups.set(prefix, []);
         }
-        groups.get(prefix)!.push(part);
+        const group = groups.get(prefix);
+        if (group) {
+          group.push(part);
+        }
       });
 
       return { sortedParts: items, locationGroups: groups };

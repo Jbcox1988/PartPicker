@@ -271,9 +271,11 @@ export function usePicks(orderId: string | undefined) {
       if (!result.has(pick.tool_id)) {
         result.set(pick.tool_id, new Map());
       }
-      const toolMap = result.get(pick.tool_id)!;
-      const current = toolMap.get(pick.line_item_id) || 0;
-      toolMap.set(pick.line_item_id, current + pick.qty_picked);
+      const toolMap = result.get(pick.tool_id);
+      if (toolMap) {
+        const current = toolMap.get(pick.line_item_id) || 0;
+        toolMap.set(pick.line_item_id, current + pick.qty_picked);
+      }
     }
     return result;
   };

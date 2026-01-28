@@ -296,7 +296,10 @@ export function PickingInterface({
         if (!groups.has(prefix)) {
           groups.set(prefix, []);
         }
-        groups.get(prefix)!.push(item);
+        const group = groups.get(prefix);
+        if (group) {
+          group.push(item);
+        }
       });
 
       return { sortedItems: items, locationGroups: groups };
@@ -820,12 +823,12 @@ export function PickingInterface({
                       onClick={() => handleQuickPick(item)}
                       disabled={isSubmitting === item.id}
                       title={pendingPicks.has(item.id)
-                        ? `Pick ${pendingPicks.get(item.id)!.qty} (custom qty set)`
+                        ? `Pick ${pendingPicks.get(item.id)?.qty ?? 0} (custom qty set)`
                         : `Pick all ${remaining} for this tool`}
                       className={pendingPicks.has(item.id) ? "bg-blue-600 hover:bg-blue-700" : ""}
                     >
                       <Check className="h-4 w-4 mr-1" />
-                      {pendingPicks.has(item.id) ? pendingPicks.get(item.id)!.qty : remaining}
+                      {pendingPicks.get(item.id)?.qty ?? remaining}
                     </Button>
                     {item.qty_per_unit > 1 && (
                       <Button
@@ -1116,7 +1119,7 @@ export function PickingInterface({
                         <Check className="h-6 w-6" />
                         <span className="text-lg">
                           {pendingPicks.has(item.id)
-                            ? `Pick ${pendingPicks.get(item.id)!.qty}`
+                            ? `Pick ${pendingPicks.get(item.id)?.qty ?? 0}`
                             : hasMultipleTools
                               ? `This Tool (${remaining})`
                               : `Pick All (${remaining})`}

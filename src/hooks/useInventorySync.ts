@@ -71,7 +71,10 @@ export function useInventorySync() {
         if (!partNumbersToUpdate.has(partNum)) {
           partNumbersToUpdate.set(partNum, []);
         }
-        partNumbersToUpdate.get(partNum)!.push(item.id);
+        const ids = partNumbersToUpdate.get(partNum);
+        if (ids) {
+          ids.push(item.id);
+        }
       }
 
       // Track if qty_available column exists (we'll detect on first update attempt)
