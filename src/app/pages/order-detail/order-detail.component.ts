@@ -1,0 +1,1315 @@
+import { Component, OnInit, OnDestroy } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { RouterModule, ActivatedRoute } from '@angular/router';
+import { FormsModule } from '@angular/forms';
+import { Subscription } from 'rxjs';
+import { OrdersService } from '../../services/orders.service';
+import { PicksService } from '../../services/picks.service';
+import { LineItemsService } from '../../services/line-items.service';
+import { IssuesService } from '../../services/issues.service';
+import { SettingsService } from '../../services/settings.service';
+import { ExcelService } from '../../services/excel.service';
+import { UtilsService } from '../../services/utils.service';
+import { Order, Tool, LineItem, LineItemWithPicks, Pick, IssueType } from '../../models';
+
+type SortMode = 'part_number' | 'location';
+
+interface PickHistoryItem {
+  pick: Pick;
+  toolNumber: string;
+}
+
+@Component({
+  selector: 'app-order-detail',
+  standalone: true,
+  imports: [CommonModule, RouterModule, FormsModule],
+  template: `
+    <div *ngIf="loading" class="text-center py-5">
+      <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
+      </div>
+      <p class="text-muted mt-3">Loading order...</p>
+    </div>
+
+    <div *ngIf="!loading && !order" class="text-center py-5">
+      <a routerLink="/orders" class="btn btn-link mb-3">
+        <i class="bi bi-arrow-left me-1"></i> Back to Orders
+      </a>
+      <div class="card">
+        <div class="card-body">
+          <p class="text-muted">Order not found</p>
+        </div>
+      </div>
+    </div>
+
+    <div *ngIf="!loading && order">
+      <!-- Completion Banner -->
+      <div class="alert alert-success d-flex align-items-center mb-3" *ngIf="isFullyPicked && order.status === 'active'">
+        <i class="bi bi-check-circle-fill me-2"></i>
+        <div class="flex-grow-1">
+          <strong>All items picked!</strong> This order is ready to be marked complete.
+        </div>
+        <button class="btn btn-success btn-sm" (click)="handleMarkComplete()">
+          <i class="bi bi-check-circle me-1"></i> Mark Complete
+        </button>
+      </div>
+
+      <!-- Status Banners -->
+      <div class="alert alert-success d-flex align-items-center mb-3" *ngIf="order.status === 'complete'">
+        <i class="bi bi-check-circle-fill me-2"></i>
+        <strong>Order Complete</strong>
+      </div>
+
+      <div class="alert alert-secondary d-flex align-items-center mb-3" *ngIf="order.status === 'cancelled'">
+        <i class="bi bi-x-circle-fill me-2"></i>
+        <strong>Order Cancelled</strong>
+      </div>
+
+      <div class="alert alert-danger d-flex align-items-center mb-3"
+           *ngIf="order.status === 'active' && utils.getDueDateStatus(order.due_date).status === 'overdue'">
+        <i class="bi bi-exclamation-circle-fill me-2"></i>
+        <strong>Order Overdue</strong> - Due on {{ utils.formatDate(order.due_date) }}
+      </div>
+
+      <div class="alert alert-warning d-flex align-items-center mb-3"
+           *ngIf="order.status === 'active' && utils.getDueDateStatus(order.due_date).status === 'due-soon'">
+        <i class="bi bi-clock-fill me-2"></i>
+        <strong>{{ utils.getDueDateStatus(order.due_date).label }}</strong> - {{ utils.formatDate(order.due_date) }}
+      </div>
+
+      <!-- Header -->
+      <div class="mb-3">
+        <a routerLink="/orders" class="text-decoration-none small">
+          <i class="bi bi-arrow-left me-1"></i> Back to Orders
+        </a>
+        <div class="d-flex flex-wrap align-items-center gap-3 mt-2">
+          <h1 class="h4 fw-bold mb-0">SO-{{ order.so_number }}</h1>
+          <select class="form-select form-select-sm w-auto" [(ngModel)]="order.status" (change)="handleStatusChange()">
+            <option value="active">Active</option>
+            <option value="complete">Complete</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+          <button class="btn btn-outline-secondary btn-sm" (click)="handleExport()">
+            <i class="bi bi-download me-1"></i> Export
+          </button>
+
+          <!-- Progress -->
+          <div class="d-flex align-items-center gap-2 ms-auto bg-light rounded px-3 py-2">
+            <span class="small text-muted">Progress:</span>
+            <div class="progress" style="width: 100px; height: 8px;">
+              <div class="progress-bar" [style.width.%]="progressPercent"></div>
+            </div>
+            <span class="small fw-semibold">{{ progressPercent }}%</span>
+            <span class="small text-muted">({{ totalPicked }}/{{ totalNeeded }})</span>
+          </div>
+
+          <button class="btn btn-success btn-sm" *ngIf="isFullyPicked && order.status === 'active'" (click)="handleMarkComplete()">
+            <i class="bi bi-check-circle me-1"></i> Mark Complete
+          </button>
+        </div>
+      </div>
+
+      <!-- Order Info Card -->
+      <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center cursor-pointer"
+             (click)="!isEditing && (isOrderInfoExpanded = !isOrderInfoExpanded)">
+          <div class="d-flex align-items-center">
+            <i class="bi me-2" [ngClass]="isOrderInfoExpanded ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+            <span class="fw-semibold">Order Information</span>
+            <span class="text-muted small ms-2" *ngIf="!isOrderInfoExpanded && !isEditing">
+              {{ getOrderSummary() }}
+            </span>
+          </div>
+          <button *ngIf="!isEditing" class="btn btn-outline-secondary btn-sm" (click)="startEditing(); $event.stopPropagation()">
+            <i class="bi bi-pencil me-1"></i> Edit
+          </button>
+          <div *ngIf="isEditing" class="d-flex gap-2" (click)="$event.stopPropagation()">
+            <button class="btn btn-outline-secondary btn-sm" (click)="cancelEditing()">Cancel</button>
+            <button class="btn btn-primary btn-sm" (click)="saveChanges()">Save</button>
+          </div>
+        </div>
+        <div class="card-body" *ngIf="isOrderInfoExpanded || isEditing">
+          <!-- View Mode -->
+          <div class="row g-3" *ngIf="!isEditing">
+            <div class="col-6 col-md-3">
+              <p class="text-muted small mb-1">SO Number</p>
+              <p class="fw-medium mb-0">{{ order.so_number }}</p>
+            </div>
+            <div class="col-6 col-md-3">
+              <p class="text-muted small mb-1">Customer</p>
+              <p class="fw-medium mb-0">{{ order.customer_name || '-' }}</p>
+            </div>
+            <div class="col-6 col-md-3">
+              <p class="text-muted small mb-1">PO Number</p>
+              <p class="fw-medium mb-0">{{ order.po_number || '-' }}</p>
+            </div>
+            <div class="col-6 col-md-3">
+              <p class="text-muted small mb-1">Tool Model</p>
+              <p class="fw-medium mb-0">{{ order.tool_model || '-' }}</p>
+            </div>
+            <div class="col-6 col-md-3">
+              <p class="text-muted small mb-1">Tools</p>
+              <p class="fw-medium mb-0">{{ tools.length }} tool(s)</p>
+            </div>
+            <div class="col-6 col-md-3">
+              <p class="text-muted small mb-1">Order Date</p>
+              <p class="fw-medium mb-0">{{ utils.formatDate(order.order_date) }}</p>
+            </div>
+            <div class="col-6 col-md-3">
+              <p class="text-muted small mb-1">Due Date</p>
+              <p class="fw-medium mb-0">{{ utils.formatDate(order.due_date) }}</p>
+            </div>
+            <div class="col-12">
+              <p class="text-muted small mb-1">Notes</p>
+              <p class="fw-medium mb-0">{{ order.notes || '-' }}</p>
+            </div>
+          </div>
+          <!-- Edit Mode -->
+          <div class="row g-3" *ngIf="isEditing">
+            <div class="col-md-3">
+              <label class="form-label small">SO Number</label>
+              <input type="text" class="form-control form-control-sm" [(ngModel)]="editForm.so_number">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">Customer</label>
+              <input type="text" class="form-control form-control-sm" [(ngModel)]="editForm.customer_name">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">PO Number</label>
+              <input type="text" class="form-control form-control-sm" [(ngModel)]="editForm.po_number">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">Tool Model</label>
+              <input type="text" class="form-control form-control-sm" [(ngModel)]="editForm.tool_model">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">Order Date</label>
+              <input type="date" class="form-control form-control-sm" [(ngModel)]="editForm.order_date">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">Due Date</label>
+              <input type="date" class="form-control form-control-sm" [(ngModel)]="editForm.due_date">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small">Notes</label>
+              <input type="text" class="form-control form-control-sm" [(ngModel)]="editForm.notes">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Picking Interface -->
+      <div *ngIf="tools.length === 0" class="card">
+        <div class="card-body text-center py-5">
+          <i class="bi bi-box-seam display-4 text-muted mb-3"></i>
+          <p class="text-muted">No tools defined for this order</p>
+          <p class="small text-muted">Import an Excel file with tool definitions or add tools manually</p>
+          <button class="btn btn-primary mt-2" (click)="showAddToolModal = true">
+            <i class="bi bi-plus me-1"></i> Add Tool
+          </button>
+        </div>
+      </div>
+
+      <div *ngIf="tools.length > 0">
+        <!-- Picking Header -->
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+          <h2 class="h6 fw-semibold mb-0">Picking</h2>
+          <span class="badge bg-secondary">{{ lineItems.length }} parts</span>
+          <span class="badge bg-light text-dark border">{{ tools.length }} tool(s)</span>
+
+          <!-- Sort Dropdown -->
+          <div class="dropdown ms-2">
+            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
+              <i class="bi bi-sort-down me-1"></i>
+              {{ sortMode === 'part_number' ? 'Part Number' : 'Location' }}
+            </button>
+            <ul class="dropdown-menu">
+              <li><a class="dropdown-item" [class.active]="sortMode === 'part_number'" (click)="sortMode = 'part_number'">Sort by Part Number</a></li>
+              <li><a class="dropdown-item" [class.active]="sortMode === 'location'" (click)="sortMode = 'location'">Sort by Location</a></li>
+            </ul>
+          </div>
+
+          <div class="ms-auto d-flex gap-2">
+            <button class="btn btn-outline-secondary btn-sm" (click)="showManageToolsModal = true">
+              <i class="bi bi-gear me-1"></i> Manage Tools
+            </button>
+            <button class="btn btn-outline-primary btn-sm" (click)="showAddLineItemModal = true">
+              <i class="bi bi-plus me-1"></i> Add Part
+            </button>
+          </div>
+        </div>
+
+        <!-- Tools Header Bar -->
+        <div class="card mb-2">
+          <div class="card-body py-2 d-flex align-items-center justify-content-between flex-wrap gap-2">
+            <div class="d-flex align-items-center gap-2">
+              <span class="small text-muted">Tools:</span>
+              <div class="d-flex gap-1 flex-wrap">
+                <span *ngFor="let tool of tools"
+                      class="badge d-flex align-items-center gap-1"
+                      [ngClass]="{
+                        'bg-success': getToolProgress(tool.id) === 100,
+                        'bg-warning text-dark': getToolProgress(tool.id) > 0 && getToolProgress(tool.id) < 100,
+                        'bg-light text-dark border': getToolProgress(tool.id) === 0
+                      }">
+                  {{ tool.tool_number }}
+                  <small *ngIf="tool.serial_number" class="opacity-75">({{ tool.serial_number }})</small>
+                  <i class="bi bi-check-circle-fill" *ngIf="getToolProgress(tool.id) === 100"></i>
+                </span>
+              </div>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+              <span class="small text-muted">Total:</span>
+              <span class="badge bg-primary">{{ totalPicked }}/{{ totalNeeded }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Picking Table with Tool Checkboxes -->
+        <div class="card">
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table class="table table-hover mb-0 align-middle">
+                <thead class="table-light">
+                  <tr>
+                    <th style="width: 30px;"></th>
+                    <th>Part Number</th>
+                    <th>Description</th>
+                    <th>Location</th>
+                    <th class="text-center" style="width: 60px;">Stock</th>
+                    <th *ngIf="tools.length > 1">Tools</th>
+                    <th class="text-center" style="width: 80px;">Total</th>
+                    <th style="width: 150px;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <ng-container *ngFor="let item of sortedLineItems; let idx = index">
+                    <!-- Location Group Header (when sorting by location) -->
+                    <tr *ngIf="sortMode === 'location' && shouldShowLocationHeader(item, idx)" class="table-info">
+                      <td colspan="8" class="py-2">
+                        <div class="d-flex align-items-center gap-2">
+                          <i class="bi bi-geo-alt-fill text-primary"></i>
+                          <strong>{{ getLocationGroup(item) }}</strong>
+                          <span class="badge bg-secondary">{{ getLocationGroupCount(item) }} items</span>
+                        </div>
+                      </td>
+                    </tr>
+
+                    <!-- Main Row -->
+                    <tr [class.table-success]="isItemComplete(item)"
+                        [class.table-warning]="isItemPartial(item)"
+                        [class.table-danger]="hasOpenIssue(item.id)">
+                      <!-- Expand Toggle -->
+                      <td class="text-center">
+                        <button class="btn btn-sm btn-link p-0" (click)="toggleExpanded(item.id)"
+                                *ngIf="getPickHistoryForItem(item.id).length > 0">
+                          <i class="bi" [ngClass]="expandedItems.has(item.id) ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+                        </button>
+                      </td>
+                      <!-- Part Number -->
+                      <td>
+                        <span class="font-monospace fw-medium">{{ item.part_number }}</span>
+                        <span class="badge bg-danger ms-1" *ngIf="hasOpenIssue(item.id)">
+                          <i class="bi bi-exclamation-triangle-fill"></i> Issue
+                        </span>
+                      </td>
+                      <!-- Description -->
+                      <td class="text-muted small">{{ item.description || '-' }}</td>
+                      <!-- Location -->
+                      <td>
+                        <span class="badge bg-light text-dark border" *ngIf="item.location">
+                          <i class="bi bi-geo-alt me-1"></i>{{ item.location }}
+                        </span>
+                        <span class="text-muted" *ngIf="!item.location">-</span>
+                      </td>
+                      <!-- Stock -->
+                      <td class="text-center">
+                        <span *ngIf="item.qty_available !== null && item.qty_available !== undefined"
+                              [ngClass]="{
+                                'text-warning fw-bold': item.qty_available < item.total_qty_needed,
+                                'text-success': item.qty_available >= item.total_qty_needed
+                              }">
+                          {{ item.qty_available }}
+                        </span>
+                        <span *ngIf="item.qty_available === null || item.qty_available === undefined" class="text-muted">-</span>
+                      </td>
+                      <!-- Tool Checkboxes (multi-tool view) -->
+                      <td *ngIf="tools.length > 1">
+                        <div class="d-flex gap-1 flex-wrap align-items-center">
+                          <button *ngFor="let tool of tools"
+                                  class="btn btn-sm tool-checkbox"
+                                  [ngClass]="getToolButtonClass(item, tool)"
+                                  [title]="getToolButtonTitle(item, tool)"
+                                  [disabled]="isSubmitting === item.id"
+                                  (click)="handleToolClick(item, tool)">
+                            <ng-container *ngIf="isToolComplete(item, tool)">
+                              <i class="bi bi-check"></i>
+                            </ng-container>
+                            <ng-container *ngIf="isToolPartial(item, tool)">
+                              {{ getToolPicked(item, tool) }}/{{ item.qty_per_unit }}
+                            </ng-container>
+                            <ng-container *ngIf="!isToolComplete(item, tool) && !isToolPartial(item, tool)">
+                              {{ getToolLabel(tool) }}
+                            </ng-container>
+                          </button>
+                          <span class="small text-muted ms-1">{{ item.total_picked }}/{{ item.total_qty_needed }}</span>
+                        </div>
+                      </td>
+                      <!-- Total (single tool or summary) -->
+                      <td class="text-center">
+                        <span class="badge" [ngClass]="isItemComplete(item) ? 'bg-success' : (isItemPartial(item) ? 'bg-warning text-dark' : 'bg-secondary')">
+                          {{ item.total_picked }}/{{ item.total_qty_needed }}
+                        </span>
+                      </td>
+                      <!-- Actions -->
+                      <td>
+                        <div class="d-flex gap-1">
+                          <!-- Undo Last Pick -->
+                          <button class="btn btn-sm btn-outline-secondary"
+                                  *ngIf="getPickHistoryForItem(item.id).length > 0"
+                                  (click)="handleUndoLastPick(item)"
+                                  [disabled]="isSubmitting === item.id"
+                                  title="Undo last pick">
+                            <i class="bi bi-arrow-counterclockwise"></i>
+                          </button>
+                          <!-- Pick All Remaining (for single tool orders OR pick remaining tools) -->
+                          <button class="btn btn-sm btn-success"
+                                  *ngIf="!isItemComplete(item)"
+                                  (click)="tools.length === 1 ? handleQuickPick(item, tools[0]) : handlePickAllTools(item)"
+                                  [disabled]="isSubmitting === item.id"
+                                  [title]="tools.length === 1 ? 'Pick ' + getRemainingForTool(item, tools[0]) : 'Pick all remaining tools'">
+                            <i class="bi bi-check-lg me-1"></i>
+                            <span *ngIf="tools.length === 1">{{ getRemainingForTool(item, tools[0]) }}</span>
+                            <span *ngIf="tools.length > 1">All ({{ getRemainingToolsCount(item) }})</span>
+                          </button>
+                          <!-- Partial Pick Button (for items with qty > 1) -->
+                          <button class="btn btn-sm btn-outline-primary"
+                                  *ngIf="!isItemComplete(item) && item.qty_per_unit > 1"
+                                  (click)="openPartialPickModal(item)"
+                                  [disabled]="isSubmitting === item.id"
+                                  title="Set custom quantity">
+                            <i class="bi bi-plus-slash-minus"></i>
+                          </button>
+                          <!-- Report Issue -->
+                          <button class="btn btn-sm"
+                                  [ngClass]="hasOpenIssue(item.id) ? 'btn-danger' : 'btn-outline-warning'"
+                                  *ngIf="!isItemComplete(item)"
+                                  (click)="openReportIssueModal(item)"
+                                  [disabled]="isSubmitting === item.id"
+                                  title="Report issue">
+                            <i class="bi bi-exclamation-triangle"></i>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+
+                    <!-- Pick History Panel (expandable) -->
+                    <tr *ngIf="expandedItems.has(item.id)" class="table-light">
+                      <td colspan="8" class="p-3">
+                        <div class="small">
+                          <div class="d-flex align-items-center gap-2 mb-2">
+                            <i class="bi bi-clock-history text-muted"></i>
+                            <strong>Pick History</strong>
+                            <span class="badge bg-secondary">{{ getPickHistoryForItem(item.id).length }} records</span>
+                          </div>
+                          <div class="list-group list-group-flush">
+                            <div *ngFor="let historyItem of getPickHistoryForItem(item.id); let i = index"
+                                 class="list-group-item d-flex justify-content-between align-items-center py-2"
+                                 [class.border-primary]="i === 0">
+                              <div class="d-flex align-items-center gap-3">
+                                <span class="badge" [ngClass]="i === 0 ? 'bg-primary' : 'bg-secondary'">
+                                  {{ historyItem.pick.qty_picked }}x
+                                </span>
+                                <span class="text-muted">
+                                  <i class="bi bi-wrench me-1"></i>{{ historyItem.toolNumber }}
+                                </span>
+                                <span class="text-muted">
+                                  <i class="bi bi-person me-1"></i>{{ historyItem.pick.picked_by || 'Unknown' }}
+                                </span>
+                                <span class="text-muted">
+                                  {{ utils.formatDateTime(historyItem.pick.picked_at) }}
+                                </span>
+                                <span *ngIf="historyItem.pick.notes" class="fst-italic text-muted">
+                                  "{{ historyItem.pick.notes }}"
+                                </span>
+                              </div>
+                              <button class="btn btn-sm btn-outline-danger"
+                                      (click)="handleDeletePick(historyItem.pick)"
+                                      [disabled]="isSubmitting === item.id"
+                                      title="Delete this pick">
+                                <i class="bi bi-trash"></i>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  </ng-container>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Empty State -->
+        <div *ngIf="sortedLineItems.length === 0" class="text-center py-5 text-muted">
+          <i class="bi bi-inbox display-4 mb-3"></i>
+          <p>No line items for this order</p>
+        </div>
+      </div>
+
+      <!-- Add Tool Modal -->
+      <div class="modal fade" [class.show]="showAddToolModal" [style.display]="showAddToolModal ? 'block' : 'none'" tabindex="-1">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Add Tool</h5>
+              <button type="button" class="btn-close" (click)="showAddToolModal = false"></button>
+            </div>
+            <div class="modal-body">
+              <div class="mb-3">
+                <label class="form-label">Tool Number</label>
+                <input type="text" class="form-control" [(ngModel)]="newToolNumber"
+                       [placeholder]="generateNextToolNumber()">
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Serial Number (optional)</label>
+                <input type="text" class="form-control" [(ngModel)]="newToolSerial">
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" (click)="showAddToolModal = false">Cancel</button>
+              <button type="button" class="btn btn-primary" (click)="handleAddTool()">Add Tool</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-backdrop fade show" *ngIf="showAddToolModal"></div>
+
+      <!-- Manage Tools Modal -->
+      <div class="modal fade" [class.show]="showManageToolsModal" [style.display]="showManageToolsModal ? 'block' : 'none'" tabindex="-1">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Manage Tools</h5>
+              <button type="button" class="btn-close" (click)="showManageToolsModal = false"></button>
+            </div>
+            <div class="modal-body">
+              <div *ngIf="tools.length === 0" class="text-center text-muted py-3">
+                No tools defined yet
+              </div>
+              <div class="list-group" *ngIf="tools.length > 0">
+                <div *ngFor="let tool of tools" class="list-group-item d-flex justify-content-between align-items-center">
+                  <div>
+                    <strong>{{ tool.tool_number }}</strong>
+                    <span *ngIf="tool.serial_number" class="text-muted ms-2">SN: {{ tool.serial_number }}</span>
+                    <div class="small text-muted">Progress: {{ getToolProgress(tool.id) }}%</div>
+                  </div>
+                  <button class="btn btn-sm btn-outline-danger" (click)="handleDeleteTool(tool)"
+                          [disabled]="getToolProgress(tool.id) > 0"
+                          [title]="getToolProgress(tool.id) > 0 ? 'Cannot delete tool with picks' : 'Delete tool'">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </div>
+              </div>
+              <hr>
+              <h6>Add New Tool</h6>
+              <div class="row g-2">
+                <div class="col-6">
+                  <input type="text" class="form-control form-control-sm" [(ngModel)]="newToolNumber"
+                         placeholder="Tool Number">
+                </div>
+                <div class="col-4">
+                  <input type="text" class="form-control form-control-sm" [(ngModel)]="newToolSerial"
+                         placeholder="Serial (optional)">
+                </div>
+                <div class="col-2">
+                  <button class="btn btn-primary btn-sm w-100" (click)="handleAddTool()">
+                    <i class="bi bi-plus"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" (click)="showManageToolsModal = false">Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-backdrop fade show" *ngIf="showManageToolsModal"></div>
+
+      <!-- Add Line Item Modal -->
+      <div class="modal fade" [class.show]="showAddLineItemModal" [style.display]="showAddLineItemModal ? 'block' : 'none'" tabindex="-1">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Add Part</h5>
+              <button type="button" class="btn-close" (click)="showAddLineItemModal = false"></button>
+            </div>
+            <div class="modal-body">
+              <div class="mb-3">
+                <label class="form-label">Part Number *</label>
+                <input type="text" class="form-control" [(ngModel)]="newLineItem.part_number">
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Description</label>
+                <input type="text" class="form-control" [(ngModel)]="newLineItem.description">
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Location</label>
+                <input type="text" class="form-control" [(ngModel)]="newLineItem.location">
+              </div>
+              <div class="row">
+                <div class="col-6 mb-3">
+                  <label class="form-label">Qty Per Unit</label>
+                  <input type="number" class="form-control" min="1" [(ngModel)]="newLineItem.qty_per_unit">
+                </div>
+                <div class="col-6 mb-3">
+                  <label class="form-label">Total Needed</label>
+                  <input type="number" class="form-control" min="1" [(ngModel)]="newLineItem.total_qty_needed">
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" (click)="showAddLineItemModal = false">Cancel</button>
+              <button type="button" class="btn btn-primary" (click)="handleAddLineItem()"
+                      [disabled]="!newLineItem.part_number.trim()">Add Part</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-backdrop fade show" *ngIf="showAddLineItemModal"></div>
+
+      <!-- Partial Pick Modal -->
+      <div class="modal fade" [class.show]="showPartialPickModal" [style.display]="showPartialPickModal ? 'block' : 'none'" tabindex="-1">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Set Pick Quantity</h5>
+              <button type="button" class="btn-close" (click)="showPartialPickModal = false"></button>
+            </div>
+            <div class="modal-body" *ngIf="partialPickItem">
+              <div class="mb-3">
+                <strong>{{ partialPickItem.part_number }}</strong>
+                <p class="text-muted small mb-0" *ngIf="partialPickItem.description">{{ partialPickItem.description }}</p>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Select Tool</label>
+                <select class="form-select" [(ngModel)]="partialPickToolId">
+                  <option *ngFor="let tool of tools" [value]="tool.id">
+                    {{ tool.tool_number }} ({{ getToolPicked(partialPickItem, tool) }}/{{ partialPickItem.qty_per_unit }} picked)
+                  </option>
+                </select>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Quantity to Pick</label>
+                <div class="input-group">
+                  <button class="btn btn-outline-secondary" type="button"
+                          (click)="partialPickQty = Math.max(1, partialPickQty - 1)">
+                    <i class="bi bi-dash"></i>
+                  </button>
+                  <input type="number" class="form-control text-center" [(ngModel)]="partialPickQty" min="1">
+                  <button class="btn btn-outline-secondary" type="button"
+                          (click)="partialPickQty = partialPickQty + 1">
+                    <i class="bi bi-plus"></i>
+                  </button>
+                </div>
+                <small class="text-muted" *ngIf="partialPickToolId">
+                  Remaining for this tool: {{ getRemainingForToolById(partialPickItem, partialPickToolId) }}
+                </small>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Note (optional)</label>
+                <textarea class="form-control" rows="2" [(ngModel)]="partialPickNote"
+                          placeholder="Why is this a partial pick?"></textarea>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" (click)="showPartialPickModal = false">Cancel</button>
+              <button type="button" class="btn btn-primary" (click)="handlePartialPick()"
+                      [disabled]="!partialPickToolId || partialPickQty < 1">
+                Pick {{ partialPickQty }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-backdrop fade show" *ngIf="showPartialPickModal"></div>
+
+      <!-- Undo Tool Pick Confirmation Modal -->
+      <div class="modal fade" [class.show]="showUndoToolModal" [style.display]="showUndoToolModal ? 'block' : 'none'" tabindex="-1">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Undo Pick for {{ undoToolData?.toolNumber }}?</h5>
+              <button type="button" class="btn-close" (click)="showUndoToolModal = false"></button>
+            </div>
+            <div class="modal-body" *ngIf="undoToolData">
+              <p>This will remove all picks for this part on the selected tool.</p>
+              <div class="alert alert-warning">
+                <strong>{{ undoToolData.item.part_number }}</strong>
+                <br>
+                <span class="text-muted">{{ undoToolData.pickedQty }}x will be removed from {{ undoToolData.toolNumber }}</span>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" (click)="showUndoToolModal = false">Cancel</button>
+              <button type="button" class="btn btn-danger" (click)="confirmUndoToolPick()">
+                <i class="bi bi-arrow-counterclockwise me-1"></i> Undo Pick
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-backdrop fade show" *ngIf="showUndoToolModal"></div>
+
+      <!-- Report Issue Modal -->
+      <div class="modal fade" [class.show]="showReportIssueModal" [style.display]="showReportIssueModal ? 'block' : 'none'" tabindex="-1">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Report Issue</h5>
+              <button type="button" class="btn-close" (click)="showReportIssueModal = false"></button>
+            </div>
+            <div class="modal-body" *ngIf="issueReportItem">
+              <div class="mb-3">
+                <strong>{{ issueReportItem.part_number }}</strong>
+                <p class="text-muted small mb-0" *ngIf="issueReportItem.description">{{ issueReportItem.description }}</p>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Issue Type</label>
+                <select class="form-select" [(ngModel)]="issueType">
+                  <option value="out_of_stock">Out of Stock</option>
+                  <option value="damaged">Damaged</option>
+                  <option value="wrong_part">Wrong Part</option>
+                  <option value="missing">Missing</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Description (optional)</label>
+                <textarea class="form-control" rows="3" [(ngModel)]="issueDescription"
+                          placeholder="Describe the issue..."></textarea>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" (click)="showReportIssueModal = false">Cancel</button>
+              <button type="button" class="btn btn-danger" (click)="handleReportIssue()">
+                <i class="bi bi-exclamation-triangle me-1"></i> Report Issue
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-backdrop fade show" *ngIf="showReportIssueModal"></div>
+    </div>
+  `,
+  styles: [`
+    .cursor-pointer { cursor: pointer; }
+    .font-monospace { font-family: monospace; }
+
+    .tool-checkbox {
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      font-size: 0.7rem;
+      font-weight: 600;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .tool-checkbox.btn-success {
+      background-color: #198754;
+      border-color: #198754;
+      color: white;
+    }
+
+    .tool-checkbox.btn-success:hover {
+      background-color: #dc3545;
+      border-color: #dc3545;
+    }
+
+    .tool-checkbox.btn-warning {
+      background-color: #ffc107;
+      border-color: #ffc107;
+      color: #000;
+      font-size: 0.6rem;
+    }
+
+    .tool-checkbox.btn-light {
+      background-color: #e9ecef;
+      border-color: #ced4da;
+      color: #495057;
+    }
+
+    .tool-checkbox.btn-light:hover {
+      background-color: #0d6efd;
+      border-color: #0d6efd;
+      color: white;
+    }
+
+    .tool-checkbox.ring {
+      box-shadow: 0 0 0 2px #0d6efd;
+    }
+
+    .modal.show { display: block !important; }
+
+    .table-success { background-color: rgba(25, 135, 84, 0.1) !important; }
+    .table-warning { background-color: rgba(255, 193, 7, 0.1) !important; }
+    .table-danger { background-color: rgba(220, 53, 69, 0.1) !important; }
+    .table-info { background-color: rgba(13, 202, 240, 0.15) !important; }
+  `]
+})
+export class OrderDetailComponent implements OnInit, OnDestroy {
+  // Expose Math for template use
+  Math = Math;
+
+  order: Order | null = null;
+  tools: Tool[] = [];
+  lineItems: LineItem[] = [];
+  lineItemsWithPicks: LineItemWithPicks[] = [];
+  picks: Pick[] = [];
+  openIssues: Set<string> = new Set();
+
+  loading = true;
+  isEditing = false;
+  isOrderInfoExpanded = false;
+  showAddToolModal = false;
+  showManageToolsModal = false;
+  showAddLineItemModal = false;
+  showPartialPickModal = false;
+  showUndoToolModal = false;
+  showReportIssueModal = false;
+
+  sortMode: SortMode = 'part_number';
+  expandedItems: Set<string> = new Set();
+  isSubmitting: string | null = null;
+
+  editForm = {
+    so_number: '',
+    po_number: '',
+    customer_name: '',
+    tool_model: '',
+    order_date: '',
+    due_date: '',
+    notes: '',
+  };
+
+  newToolNumber = '';
+  newToolSerial = '';
+
+  newLineItem = {
+    part_number: '',
+    description: '',
+    location: '',
+    qty_per_unit: 1,
+    total_qty_needed: 1,
+  };
+
+  // Partial pick modal state
+  partialPickItem: LineItemWithPicks | null = null;
+  partialPickToolId: string = '';
+  partialPickQty: number = 1;
+  partialPickNote: string = '';
+
+  // Undo tool modal state
+  undoToolData: { item: LineItemWithPicks; toolId: string; toolNumber: string; pickedQty: number } | null = null;
+
+  // Report issue modal state
+  issueReportItem: LineItemWithPicks | null = null;
+  issueType: IssueType = 'out_of_stock';
+  issueDescription: string = '';
+
+  private orderId: string | null = null;
+  private subscriptions: Subscription[] = [];
+  private allToolsPicksMap: Map<string, Map<string, number>> = new Map();
+
+  constructor(
+    private route: ActivatedRoute,
+    private ordersService: OrdersService,
+    private picksService: PicksService,
+    private lineItemsService: LineItemsService,
+    private issuesService: IssuesService,
+    private settingsService: SettingsService,
+    private excelService: ExcelService,
+    public utils: UtilsService
+  ) {}
+
+  ngOnInit(): void {
+    // Load sort preference from localStorage
+    const savedSort = localStorage.getItem('picking-sort-preference');
+    if (savedSort === 'location' || savedSort === 'part_number') {
+      this.sortMode = savedSort;
+    }
+
+    this.route.params.subscribe(params => {
+      this.orderId = params['id'];
+      if (this.orderId) {
+        this.loadOrder();
+        this.picksService.loadPicksForOrder(this.orderId);
+        this.issuesService.loadIssuesForOrder(this.orderId);
+      }
+    });
+
+    this.subscriptions.push(
+      this.picksService.lineItemsWithPicks$.subscribe(items => {
+        this.lineItemsWithPicks = items;
+        this.updateAllToolsPicksMap();
+      }),
+      this.picksService.picks$.subscribe(picks => {
+        this.picks = picks;
+        this.updateAllToolsPicksMap();
+      }),
+      this.issuesService.issues$.subscribe(issues => {
+        this.openIssues = new Set(
+          issues.filter(i => i.status === 'open').map(i => i.line_item_id)
+        );
+      })
+    );
+  }
+
+  ngOnDestroy(): void {
+    this.subscriptions.forEach(sub => sub.unsubscribe());
+  }
+
+  private updateAllToolsPicksMap(): void {
+    this.allToolsPicksMap = this.picksService.getPicksForAllTools();
+  }
+
+  async loadOrder(): Promise<void> {
+    if (!this.orderId) return;
+
+    this.loading = true;
+    const result = await this.ordersService.getOrder(this.orderId);
+    this.order = result.order;
+    this.tools = result.tools;
+    this.lineItems = result.lineItems;
+    this.loading = false;
+  }
+
+  // Persist sort preference
+  get sortModeValue(): SortMode {
+    return this.sortMode;
+  }
+
+  set sortModeValue(value: SortMode) {
+    this.sortMode = value;
+    localStorage.setItem('picking-sort-preference', value);
+  }
+
+  get sortedLineItems(): LineItemWithPicks[] {
+    const items = [...this.lineItemsWithPicks];
+
+    if (this.sortMode === 'location') {
+      items.sort((a, b) => {
+        const locA = a.location || '';
+        const locB = b.location || '';
+        if (!locA && locB) return 1;
+        if (locA && !locB) return -1;
+        if (!locA && !locB) return this.alphanumericCompare(a.part_number, b.part_number);
+        const cmp = this.alphanumericCompare(locA, locB);
+        return cmp !== 0 ? cmp : this.alphanumericCompare(a.part_number, b.part_number);
+      });
+    } else {
+      items.sort((a, b) => this.alphanumericCompare(a.part_number, b.part_number));
+    }
+
+    return items;
+  }
+
+  private alphanumericCompare(a: string, b: string): number {
+    return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+  }
+
+  private getLocationPrefix(location: string | null | undefined): string {
+    if (!location) return 'No Location';
+    const parts = location.split('-');
+    if (parts.length >= 2) {
+      return `${parts[0]}-${parts[1]}`;
+    }
+    return parts[0] || 'No Location';
+  }
+
+  shouldShowLocationHeader(item: LineItemWithPicks, index: number): boolean {
+    if (this.sortMode !== 'location') return false;
+    if (index === 0) return true;
+
+    const sorted = this.sortedLineItems;
+    const prevItem = sorted[index - 1];
+    return this.getLocationPrefix(item.location) !== this.getLocationPrefix(prevItem.location);
+  }
+
+  getLocationGroup(item: LineItemWithPicks): string {
+    return this.getLocationPrefix(item.location);
+  }
+
+  getLocationGroupCount(item: LineItemWithPicks): number {
+    const prefix = this.getLocationPrefix(item.location);
+    return this.sortedLineItems.filter(i => this.getLocationPrefix(i.location) === prefix).length;
+  }
+
+  get totalNeeded(): number {
+    return this.lineItemsWithPicks.reduce((sum, item) => sum + item.total_qty_needed, 0);
+  }
+
+  get totalPicked(): number {
+    return this.lineItemsWithPicks.reduce((sum, item) => sum + item.total_picked, 0);
+  }
+
+  get progressPercent(): number {
+    return this.totalNeeded > 0 ? Math.round((this.totalPicked / this.totalNeeded) * 100) : 0;
+  }
+
+  get isFullyPicked(): boolean {
+    return this.progressPercent === 100 && this.totalNeeded > 0;
+  }
+
+  // Tool-related helpers
+  getToolProgress(toolId: string): number {
+    const toolPicks = this.picksService.getPicksForTool(toolId);
+    const toolTotal = this.lineItems.reduce((sum, item) => sum + item.qty_per_unit, 0);
+    const toolPicked = Array.from(toolPicks.values()).reduce((sum, qty) => sum + qty, 0);
+    return toolTotal > 0 ? Math.round((toolPicked / toolTotal) * 100) : 0;
+  }
+
+  getToolLabel(tool: Tool): string {
+    if (tool.tool_number.includes('-')) {
+      return tool.tool_number.split('-').pop() || tool.tool_number.slice(-2);
+    }
+    return tool.tool_number.slice(-2);
+  }
+
+  getToolPicked(item: LineItemWithPicks, tool: Tool): number {
+    const toolPicks = this.allToolsPicksMap.get(tool.id);
+    return toolPicks?.get(item.id) || 0;
+  }
+
+  getRemainingForTool(item: LineItemWithPicks, tool: Tool): number {
+    return item.qty_per_unit - this.getToolPicked(item, tool);
+  }
+
+  getRemainingForToolById(item: LineItemWithPicks, toolId: string): number {
+    const tool = this.tools.find(t => t.id === toolId);
+    return tool ? this.getRemainingForTool(item, tool) : 0;
+  }
+
+  isToolComplete(item: LineItemWithPicks, tool: Tool): boolean {
+    return this.getToolPicked(item, tool) >= item.qty_per_unit;
+  }
+
+  isToolPartial(item: LineItemWithPicks, tool: Tool): boolean {
+    const picked = this.getToolPicked(item, tool);
+    return picked > 0 && picked < item.qty_per_unit;
+  }
+
+  isItemComplete(item: LineItemWithPicks): boolean {
+    return item.remaining === 0;
+  }
+
+  isItemPartial(item: LineItemWithPicks): boolean {
+    return item.total_picked > 0 && item.remaining > 0;
+  }
+
+  getRemainingToolsCount(item: LineItemWithPicks): number {
+    return this.tools.filter(t => !this.isToolComplete(item, t)).length;
+  }
+
+  hasOpenIssue(lineItemId: string): boolean {
+    return this.openIssues.has(lineItemId);
+  }
+
+  getToolButtonClass(item: LineItemWithPicks, tool: Tool): string {
+    if (this.isToolComplete(item, tool)) return 'btn-success';
+    if (this.isToolPartial(item, tool)) return 'btn-warning';
+    return 'btn-light';
+  }
+
+  getToolButtonTitle(item: LineItemWithPicks, tool: Tool): string {
+    const picked = this.getToolPicked(item, tool);
+    const needed = item.qty_per_unit;
+    if (this.isToolComplete(item, tool)) {
+      return `${tool.tool_number}: Complete - Click to undo`;
+    }
+    if (this.isToolPartial(item, tool)) {
+      return `${tool.tool_number}: Partial (${picked}/${needed}) - Click for options`;
+    }
+    return `${tool.tool_number}: Click to pick ${needed}`;
+  }
+
+  // Pick History
+  getPickHistoryForItem(lineItemId: string): PickHistoryItem[] {
+    const itemPicks = this.picks.filter(p => p.line_item_id === lineItemId);
+    // Sort by picked_at descending (most recent first)
+    itemPicks.sort((a, b) => new Date(b.picked_at).getTime() - new Date(a.picked_at).getTime());
+
+    return itemPicks.map(pick => {
+      const tool = this.tools.find(t => t.id === pick.tool_id);
+      return {
+        pick,
+        toolNumber: tool?.tool_number || 'Unknown'
+      };
+    });
+  }
+
+  toggleExpanded(itemId: string): void {
+    if (this.expandedItems.has(itemId)) {
+      this.expandedItems.delete(itemId);
+    } else {
+      this.expandedItems.add(itemId);
+    }
+  }
+
+  // Actions
+  async handleToolClick(item: LineItemWithPicks, tool: Tool): Promise<void> {
+    const picked = this.getToolPicked(item, tool);
+    const needed = item.qty_per_unit;
+
+    if (this.isToolComplete(item, tool)) {
+      // Show undo confirmation
+      this.undoToolData = {
+        item,
+        toolId: tool.id,
+        toolNumber: tool.tool_number,
+        pickedQty: picked
+      };
+      this.showUndoToolModal = true;
+    } else if (this.isToolPartial(item, tool)) {
+      // Open partial pick modal for this tool
+      this.openPartialPickModal(item, tool.id);
+    } else {
+      // Pick all for this tool
+      await this.handlePickForTool(item, tool);
+    }
+  }
+
+  async handlePickForTool(item: LineItemWithPicks, tool: Tool): Promise<void> {
+    const remaining = this.getRemainingForTool(item, tool);
+    if (remaining <= 0) return;
+
+    this.isSubmitting = item.id;
+    const userName = this.settingsService.getUserName();
+    await this.picksService.recordPick(item.id, tool.id, remaining, userName);
+    this.isSubmitting = null;
+  }
+
+  async handleQuickPick(item: LineItemWithPicks, tool: Tool): Promise<void> {
+    await this.handlePickForTool(item, tool);
+  }
+
+  async handlePickAllTools(item: LineItemWithPicks): Promise<void> {
+    this.isSubmitting = item.id;
+    const userName = this.settingsService.getUserName();
+
+    for (const tool of this.tools) {
+      const remaining = this.getRemainingForTool(item, tool);
+      if (remaining > 0) {
+        await this.picksService.recordPick(item.id, tool.id, remaining, userName);
+      }
+    }
+
+    this.isSubmitting = null;
+  }
+
+  async handleUndoLastPick(item: LineItemWithPicks): Promise<void> {
+    const history = this.getPickHistoryForItem(item.id);
+    if (history.length === 0) return;
+
+    this.isSubmitting = item.id;
+    await this.picksService.undoPick(history[0].pick.id);
+    this.isSubmitting = null;
+  }
+
+  async handleDeletePick(pick: Pick): Promise<void> {
+    this.isSubmitting = pick.line_item_id;
+    await this.picksService.undoPick(pick.id);
+    this.isSubmitting = null;
+  }
+
+  async confirmUndoToolPick(): Promise<void> {
+    if (!this.undoToolData) return;
+
+    this.isSubmitting = this.undoToolData.item.id;
+
+    // Get all picks for this line item and tool
+    const toolPicks = this.picks.filter(
+      p => p.line_item_id === this.undoToolData!.item.id && p.tool_id === this.undoToolData!.toolId
+    );
+
+    // Delete all picks
+    for (const pick of toolPicks) {
+      await this.picksService.undoPick(pick.id);
+    }
+
+    this.isSubmitting = null;
+    this.showUndoToolModal = false;
+    this.undoToolData = null;
+  }
+
+  // Partial Pick Modal
+  openPartialPickModal(item: LineItemWithPicks, toolId?: string): void {
+    this.partialPickItem = item;
+    this.partialPickToolId = toolId || (this.tools.length > 0 ? this.tools[0].id : '');
+    this.partialPickQty = 1;
+    this.partialPickNote = '';
+    this.showPartialPickModal = true;
+  }
+
+  async handlePartialPick(): Promise<void> {
+    if (!this.partialPickItem || !this.partialPickToolId || this.partialPickQty < 1) return;
+
+    const remaining = this.getRemainingForToolById(this.partialPickItem, this.partialPickToolId);
+    const qtyToPick = Math.min(this.partialPickQty, remaining);
+
+    if (qtyToPick <= 0) return;
+
+    this.isSubmitting = this.partialPickItem.id;
+    const userName = this.settingsService.getUserName();
+    await this.picksService.recordPick(
+      this.partialPickItem.id,
+      this.partialPickToolId,
+      qtyToPick,
+      userName,
+      this.partialPickNote || undefined
+    );
+
+    this.isSubmitting = null;
+    this.showPartialPickModal = false;
+    this.partialPickItem = null;
+  }
+
+  // Report Issue Modal
+  openReportIssueModal(item: LineItemWithPicks): void {
+    this.issueReportItem = item;
+    this.issueType = 'out_of_stock';
+    this.issueDescription = '';
+    this.showReportIssueModal = true;
+  }
+
+  async handleReportIssue(): Promise<void> {
+    if (!this.issueReportItem || !this.orderId) return;
+
+    const userName = this.settingsService.getUserName();
+    await this.issuesService.reportIssue(
+      this.issueReportItem.id,
+      this.orderId,
+      this.issueType,
+      this.issueDescription || undefined,
+      userName
+    );
+
+    this.showReportIssueModal = false;
+    this.issueReportItem = null;
+  }
+
+  // Other helpers
+  generateNextToolNumber(): string {
+    if (!this.order) return '';
+    return this.ordersService.generateNextToolNumber(this.order.so_number, this.tools);
+  }
+
+  getOrderSummary(): string {
+    if (!this.order) return 'No details';
+    const parts = [
+      this.order.customer_name,
+      this.order.po_number ? 'PO: ' + this.order.po_number : null,
+      this.order.tool_model,
+      this.order.due_date ? 'Due: ' + this.utils.formatDate(this.order.due_date) : null
+    ].filter(x => x != null);
+    return parts.length > 0 ? parts.join(' • ') : 'No details';
+  }
+
+  async handleStatusChange(): Promise<void> {
+    if (!this.order) return;
+    await this.ordersService.updateOrder(this.order.id, { status: this.order.status });
+  }
+
+  async handleMarkComplete(): Promise<void> {
+    if (!this.order) return;
+    await this.ordersService.updateOrder(this.order.id, { status: 'complete' });
+    await this.loadOrder();
+  }
+
+  startEditing(): void {
+    if (!this.order) return;
+    this.editForm = {
+      so_number: this.order.so_number || '',
+      po_number: this.order.po_number || '',
+      customer_name: this.order.customer_name || '',
+      tool_model: this.order.tool_model || '',
+      order_date: this.order.order_date || '',
+      due_date: this.order.due_date || '',
+      notes: this.order.notes || '',
+    };
+    this.isEditing = true;
+    this.isOrderInfoExpanded = true;
+  }
+
+  cancelEditing(): void {
+    this.isEditing = false;
+  }
+
+  async saveChanges(): Promise<void> {
+    if (!this.order) return;
+    await this.ordersService.updateOrder(this.order.id, {
+      so_number: this.editForm.so_number || this.order.so_number,
+      po_number: this.editForm.po_number || null,
+      customer_name: this.editForm.customer_name || null,
+      tool_model: this.editForm.tool_model || null,
+      order_date: this.editForm.order_date || null,
+      due_date: this.editForm.due_date || null,
+      notes: this.editForm.notes || null,
+    });
+    this.isEditing = false;
+    await this.loadOrder();
+  }
+
+  handleExport(): void {
+    if (!this.order) return;
+    this.excelService.exportOrderToExcel(this.order, this.tools, this.lineItemsWithPicks, this.picks);
+  }
+
+  async handleAddTool(): Promise<void> {
+    if (!this.orderId) return;
+    const toolNumber = this.newToolNumber.trim() || this.generateNextToolNumber();
+    await this.ordersService.addTool(this.orderId, toolNumber, this.newToolSerial || undefined);
+    this.newToolNumber = '';
+    this.newToolSerial = '';
+    this.showAddToolModal = false;
+    await this.loadOrder();
+  }
+
+  async handleDeleteTool(tool: Tool): Promise<void> {
+    if (!this.orderId) return;
+    // Only allow deletion if no picks for this tool
+    if (this.getToolProgress(tool.id) > 0) return;
+    await this.ordersService.deleteTool(tool.id);
+    await this.loadOrder();
+  }
+
+  async handleAddLineItem(): Promise<void> {
+    if (!this.orderId || !this.newLineItem.part_number.trim()) return;
+
+    await this.lineItemsService.addLineItem(this.orderId, {
+      part_number: this.newLineItem.part_number.trim(),
+      description: this.newLineItem.description.trim() || undefined,
+      location: this.newLineItem.location.trim() || undefined,
+      qty_per_unit: this.newLineItem.qty_per_unit,
+      total_qty_needed: this.newLineItem.total_qty_needed,
+    });
+
+    this.newLineItem = {
+      part_number: '',
+      description: '',
+      location: '',
+      qty_per_unit: 1,
+      total_qty_needed: 1,
+    };
+    this.showAddLineItemModal = false;
+    await this.loadOrder();
+    if (this.orderId) {
+      this.picksService.loadPicksForOrder(this.orderId);
+    }
+  }
+}
