@@ -364,6 +364,42 @@ export function PickingInterface({
     }
   }, [onPickAllRemainingTools]);
 
+  // Pick all items in a location group for the current tool
+  const [isPickingLocation, setIsPickingLocation] = useState<string | null>(null);
+
+  const handlePickAllInLocation = useCallback(async (locationItems: LineItem[]) => {
+    const itemsToPick = locationItems.filter(item => {
+      const pickedForTool = toolPicks.get(item.id) || 0;
+      return item.qty_per_unit - pickedForTool > 0;
+    });
+
+    if (itemsToPick.length === 0) return;
+
+    const locationPrefix = itemsToPick[0]?.location?.split('-')[0] || 'location';
+    setIsPickingLocation(locationPrefix);
+
+    try {
+      // Pick all items sequentially to avoid race conditions
+      for (const item of itemsToPick) {
+        const pickedForTool = toolPicks.get(item.id) || 0;
+        const remaining = item.qty_per_unit - pickedForTool;
+        if (remaining > 0) {
+          await onRecordPick(item.id, tool.id, remaining, getUserName());
+        }
+      }
+    } finally {
+      setIsPickingLocation(null);
+    }
+  }, [toolPicks, tool.id, onRecordPick, getUserName]);
+
+  // Get count of unpicked items in a location group
+  const getUnpickedCountInLocation = useCallback((locationItems: LineItem[]) => {
+    return locationItems.filter(item => {
+      const pickedForTool = toolPicks.get(item.id) || 0;
+      return item.qty_per_unit - pickedForTool > 0;
+    }).length;
+  }, [toolPicks]);
+
   // Count how many tools still need this part
   const getRemainingToolsCount = useCallback((item: LineItem) => {
     return allTools.filter(t => {
@@ -649,6 +685,10 @@ export function PickingInterface({
     // Count remaining tools that need this part
     const remainingToolsCount = getRemainingToolsCount(item);
 
+    // Check for low stock warning (not enough available to complete remaining picks)
+    const remainingToPick = totalNeeded - totalPicked;
+    const isLowStock = item.qty_available !== null && item.qty_available < remainingToPick && !allToolsComplete;
+
     return (
       <div key={item.id} className="hidden md:block space-y-0">
         {/* Main Row */}
@@ -657,6 +697,7 @@ export function PickingInterface({
             'grid gap-2 px-3 py-3 rounded-lg border items-center grid-cols-12',
             allToolsComplete ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800' : 'bg-white dark:bg-card',
             itemHasIssue && !allToolsComplete && 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800',
+            isLowStock && !itemHasIssue && 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800',
             isSubmitting === item.id && 'opacity-50',
             isExpanded && 'rounded-b-none'
           )}
@@ -684,6 +725,12 @@ export function PickingInterface({
                 <Badge variant="destructive" className="gap-1 text-xs">
                   <AlertTriangle className="h-3 w-3" />
                   Issue
+                </Badge>
+              )}
+              {isLowStock && !itemHasIssue && (
+                <Badge className="gap-1 text-xs bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700">
+                  <AlertTriangle className="h-3 w-3" />
+                  Low
                 </Badge>
               )}
             </div>
@@ -935,6 +982,10 @@ export function PickingInterface({
     // Count remaining tools that need this part
     const remainingToolsCount = getRemainingToolsCount(item);
 
+    // Check for low stock warning (not enough available to complete remaining picks)
+    const remainingToPick = totalNeeded - totalPicked;
+    const isLowStock = item.qty_available !== null && item.qty_available < remainingToPick && !allToolsComplete;
+
     return (
       <div
         key={`mobile-${item.id}`}
@@ -959,6 +1010,7 @@ export function PickingInterface({
             'relative flex flex-col p-4 border rounded-xl shadow-sm bg-white dark:bg-card transition-transform',
             allToolsComplete ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800' : '',
             itemHasIssue && !allToolsComplete && 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800',
+            isLowStock && !itemHasIssue && 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800',
             isSubmitting === item.id && 'opacity-50'
           )}
           style={{
@@ -979,6 +1031,12 @@ export function PickingInterface({
                   <Badge variant="destructive" className="gap-1 text-xs">
                     <AlertTriangle className="h-3 w-3" />
                     Issue
+                  </Badge>
+                )}
+                {isLowStock && !itemHasIssue && (
+                  <Badge className="gap-1 text-xs bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700">
+                    <AlertTriangle className="h-3 w-3" />
+                    Low Stock
                   </Badge>
                 )}
               </div>
@@ -1285,17 +1343,48 @@ export function PickingInterface({
       {/* Line Items */}
       <div className="space-y-3 md:space-y-1 mt-3 md:mt-0">
         {sortMode === 'location' && locationGroups ? (
-          Array.from(locationGroups.entries()).map(([prefix, items]) => (
-            <div key={prefix} className="space-y-3 md:space-y-1">
-              {/* Location Group Header */}
-              <div className="flex items-center gap-2 px-4 py-3 md:px-3 md:py-2 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-xl md:rounded-lg mt-4 md:mt-3 first:mt-0">
-                <MapPin className="h-5 w-5 md:h-4 md:w-4 text-blue-600" />
-                <span className="font-semibold text-lg md:text-base text-blue-800 dark:text-blue-200">{prefix}</span>
-                <Badge variant="secondary" className="ml-auto text-sm">{items.length} {items.length === 1 ? 'item' : 'items'}</Badge>
+          Array.from(locationGroups.entries()).map(([prefix, items]) => {
+            const unpickedCount = getUnpickedCountInLocation(items);
+            const isPickingThisLocation = isPickingLocation === prefix;
+
+            return (
+              <div key={prefix} className="space-y-3 md:space-y-1">
+                {/* Location Group Header */}
+                <div className="flex items-center gap-2 px-4 py-3 md:px-3 md:py-2 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-xl md:rounded-lg mt-4 md:mt-3 first:mt-0">
+                  <MapPin className="h-5 w-5 md:h-4 md:w-4 text-blue-600" />
+                  <span className="font-semibold text-lg md:text-base text-blue-800 dark:text-blue-200">{prefix}</span>
+                  <Badge variant="secondary" className="text-sm">{items.length} {items.length === 1 ? 'item' : 'items'}</Badge>
+                  <div className="ml-auto flex items-center gap-2">
+                    {unpickedCount > 0 && (
+                      <Button
+                        size="sm"
+                        variant="default"
+                        className="h-8 bg-blue-600 hover:bg-blue-700"
+                        onClick={() => handlePickAllInLocation(items)}
+                        disabled={isPickingThisLocation}
+                      >
+                        {isPickingThisLocation ? (
+                          <>Picking...</>
+                        ) : (
+                          <>
+                            <Check className="h-4 w-4 mr-1" />
+                            Pick All ({unpickedCount})
+                          </>
+                        )}
+                      </Button>
+                    )}
+                    {unpickedCount === 0 && (
+                      <Badge variant="outline" className="bg-green-100 text-green-700 border-green-300">
+                        <CheckCircle2 className="h-3 w-3 mr-1" />
+                        Complete
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+                {items.map(renderLineItem)}
               </div>
-              {items.map(renderLineItem)}
-            </div>
-          ))
+            );
+          })
         ) : (
           sortedItems.map(renderLineItem)
         )}

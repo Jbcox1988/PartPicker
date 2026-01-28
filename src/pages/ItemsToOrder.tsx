@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, ShoppingCart, ChevronDown, ChevronRight, MapPin, ArrowUpDown, X, Download, AlertCircle, Filter } from 'lucide-react';
+import { Search, ShoppingCart, ChevronDown, ChevronRight, MapPin, ArrowUpDown, X, Download, AlertCircle, Filter, CheckCircle2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -15,20 +15,19 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useItemsToOrder } from '@/hooks/useItemsToOrder';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { exportItemsToOrderToExcel } from '@/lib/excelExport';
+import { alphanumericCompare } from '@/lib/utils';
+import { EmptyState } from '@/components/common/EmptyState';
 
 type SortMode = 'part_number' | 'remaining' | 'location';
 
 const ITEMS_TO_ORDER_SORT_KEY = 'items-to-order-sort-preference';
 
-// Alphanumeric sort comparison
-function alphanumericCompare(a: string, b: string): number {
-  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
-}
-
 export function ItemsToOrder() {
   const { items, loading } = useItemsToOrder();
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearch = useDebouncedValue(searchQuery, 300);
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [sortMode, setSortMode] = useState<SortMode>(() => {
     const saved = localStorage.getItem(ITEMS_TO_ORDER_SORT_KEY);
@@ -78,9 +77,9 @@ export function ItemsToOrder() {
 
   const filteredItems = items.filter((item) => {
     const matchesSearch =
-      item.part_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.location?.toLowerCase().includes(searchQuery.toLowerCase());
+      item.part_number.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+      item.description?.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+      item.location?.toLowerCase().includes(debouncedSearch.toLowerCase());
 
     const matchesOrder = selectedOrders.size === 0
       || item.orders.some(o => selectedOrders.has(o.order_id));
@@ -292,7 +291,7 @@ export function ItemsToOrder() {
                   </Button>
                 )}
               </div>
-              {(searchQuery || hasActiveFilters) && (
+              {(debouncedSearch || hasActiveFilters) && (
                 <span className="text-sm text-muted-foreground">
                   {filteredItems.length} result{filteredItems.length !== 1 ? 's' : ''}
                 </span>
@@ -310,25 +309,15 @@ export function ItemsToOrder() {
           </CardContent>
         </Card>
       ) : sortedItems.length === 0 ? (
-        <Card>
-          <CardContent className="py-8 text-center">
-            <ShoppingCart className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-            <p className="text-muted-foreground">
-              {searchQuery || hasActiveFilters
-                ? 'No items match your search or filters'
-                : 'No items need to be ordered. All parts have stock available!'}
-            </p>
-            {hasActiveFilters && (
-              <Button
-                variant="link"
-                onClick={clearFilters}
-                className="mt-2"
-              >
-                Clear filters
-              </Button>
-            )}
-          </CardContent>
-        </Card>
+        <EmptyState
+          icon={debouncedSearch || hasActiveFilters ? ShoppingCart : CheckCircle2}
+          message={
+            debouncedSearch || hasActiveFilters
+              ? 'No items match your search or filters'
+              : 'No items need to be ordered. All parts have stock available!'
+          }
+          actions={hasActiveFilters ? [{ label: 'Clear filters', onClick: clearFilters, variant: 'link' }] : undefined}
+        />
       ) : (
         <div className="space-y-2">
           {sortedItems.map((item) => {

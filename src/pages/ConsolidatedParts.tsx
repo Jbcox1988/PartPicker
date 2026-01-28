@@ -16,6 +16,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useConsolidatedParts, type OrderStatusFilter } from '@/hooks/useConsolidatedParts';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { cn, getLocationPrefix, alphanumericCompare } from '@/lib/utils';
 import { exportConsolidatedPartsToExcel } from '@/lib/excelExport';
 import { MultiOrderPickDialog } from '@/components/picking/MultiOrderPickDialog';
@@ -254,6 +255,7 @@ export function ConsolidatedParts() {
   });
   const { parts, loading } = useConsolidatedParts(statusFilter);
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearch = useDebouncedValue(searchQuery, 300);
   const [expandedParts, setExpandedParts] = useState<Set<string>>(new Set());
   const [showCompleted, setShowCompleted] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>(() => {
@@ -319,9 +321,9 @@ export function ConsolidatedParts() {
 
   const filteredParts = parts.filter((part) => {
     const matchesSearch =
-      part.part_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      part.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      part.location?.toLowerCase().includes(searchQuery.toLowerCase());
+      part.part_number.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+      part.description?.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+      part.location?.toLowerCase().includes(debouncedSearch.toLowerCase());
 
     const matchesCompleted = showCompleted || part.remaining > 0;
 
@@ -573,7 +575,7 @@ export function ConsolidatedParts() {
                 />
                 <span className="text-sm font-medium">Show completed parts</span>
               </label>
-              {(searchQuery || hasActiveFilters) && (
+              {(debouncedSearch || hasActiveFilters) && (
                 <span className="text-sm text-muted-foreground">
                   {filteredParts.length} result{filteredParts.length !== 1 ? 's' : ''}
                 </span>
@@ -595,7 +597,7 @@ export function ConsolidatedParts() {
           <CardContent className="py-8 text-center">
             <Package className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
             <p className="text-muted-foreground">
-              {searchQuery || !showCompleted || hasActiveFilters
+              {debouncedSearch || !showCompleted || hasActiveFilters
                 ? 'No parts match your filters'
                 : statusFilter === 'active'
                   ? 'No active orders with parts. Try switching to "All" orders.'
@@ -612,7 +614,7 @@ export function ConsolidatedParts() {
                 Clear filters
               </Button>
             )}
-            {parts.length === 0 && !searchQuery && showCompleted && statusFilter !== 'all' && !hasActiveFilters && (
+            {parts.length === 0 && !debouncedSearch && showCompleted && statusFilter !== 'all' && !hasActiveFilters && (
               <Button
                 variant="outline"
                 className="mt-4"
