@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Plus, Minus, Check, MapPin, MessageSquare, ArrowUpDown, AlertTriangle, CheckCircle2, ChevronRight, ChevronDown, Undo2, Trash2, Clock, User, Package } from 'lucide-react';
+import { Plus, Minus, Check, MapPin, MessageSquare, ArrowUpDown, AlertTriangle, CheckCircle2, ChevronRight, ChevronDown, Undo2, Trash2, Clock, User, Package, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import type { Tool, LineItem, LineItemWithPicks, Pick, IssueType } from '@/types';
 import { Layers, SplitSquareVertical } from 'lucide-react';
 import { useSettings } from '@/hooks/useSettings';
@@ -235,11 +236,20 @@ export function PickingInterface({
     const saved = localStorage.getItem(SORT_PREFERENCE_KEY);
     return (saved as SortMode) || 'part_number';
   });
+  const [hideCompleted, setHideCompleted] = useState(() => {
+    const saved = localStorage.getItem('picking-hide-completed');
+    return saved === 'true';
+  });
 
   // Persist sort preference
   useEffect(() => {
     localStorage.setItem(SORT_PREFERENCE_KEY, sortMode);
   }, [sortMode]);
+
+  // Persist hide completed preference
+  useEffect(() => {
+    localStorage.setItem('picking-hide-completed', String(hideCompleted));
+  }, [hideCompleted]);
 
   const toolPicks = getPicksForTool(tool.id);
   const allToolsPicksMap = useMemo(() => getPicksForAllTools(), [getPicksForAllTools]);
@@ -255,8 +265,19 @@ export function PickingInterface({
   }).length;
 
   // Sort and group items
-  const { sortedItems, locationGroups } = useMemo(() => {
-    const items = [...filteredLineItems];
+  const { sortedItems, locationGroups, hiddenCount } = useMemo(() => {
+    // Filter out completed items if hideCompleted is true
+    let items = [...filteredLineItems];
+    let hiddenItemsCount = 0;
+
+    if (hideCompleted) {
+      const before = items.length;
+      items = items.filter(item => {
+        const pickedForTool = toolPicks.get(item.id) || 0;
+        return item.qty_per_unit - pickedForTool > 0;
+      });
+      hiddenItemsCount = before - items.length;
+    }
 
     if (sortMode === 'location') {
       // Sort by location (alphanumeric), items without location go to end
@@ -287,13 +308,13 @@ export function PickingInterface({
         }
       });
 
-      return { sortedItems: items, locationGroups: groups };
+      return { sortedItems: items, locationGroups: groups, hiddenCount: hiddenItemsCount };
     } else {
       // Sort by part number (alphanumeric)
       items.sort((a, b) => alphanumericCompare(a.part_number, b.part_number));
-      return { sortedItems: items, locationGroups: null };
+      return { sortedItems: items, locationGroups: null, hiddenCount: hiddenItemsCount };
     }
-  }, [filteredLineItems, sortMode]);
+  }, [filteredLineItems, sortMode, hideCompleted, toolPicks]);
 
   const handleQuickPick = useCallback(async (item: LineItem) => {
     const pickedForTool = toolPicks.get(item.id) || 0;
@@ -1183,7 +1204,7 @@ export function PickingInterface({
         </div>
         {/* Mobile Sort Controls */}
         <div className="flex items-center gap-2 pb-3">
-          <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
+          <ArrowUpDown className="h-4 w-4 text-muted-foreground flex-shrink-0" />
           <Select value={sortMode} onValueChange={(v) => setSortMode(v as SortMode)}>
             <SelectTrigger className="flex-1 h-10">
               <SelectValue />
@@ -1193,21 +1214,50 @@ export function PickingInterface({
               <SelectItem value="location">Sort by Location</SelectItem>
             </SelectContent>
           </Select>
+          <label className="flex items-center gap-2 cursor-pointer select-none flex-shrink-0 px-2">
+            <Checkbox
+              checked={hideCompleted}
+              onCheckedChange={(checked) => setHideCompleted(checked === true)}
+            />
+            <span className="text-sm whitespace-nowrap">
+              {hideCompleted ? <EyeOff className="h-4 w-4 inline mr-1" /> : <Eye className="h-4 w-4 inline mr-1" />}
+              Hide done
+            </span>
+          </label>
         </div>
+        {hiddenCount > 0 && (
+          <div className="text-xs text-muted-foreground pb-2">
+            {hiddenCount} completed item{hiddenCount !== 1 ? 's' : ''} hidden
+          </div>
+        )}
       </div>
 
       {/* Desktop Sort Controls */}
-      <div className="hidden md:flex items-center justify-end gap-2 mb-2">
-        <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
-        <Select value={sortMode} onValueChange={(v) => setSortMode(v as SortMode)}>
-          <SelectTrigger className="w-48">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="part_number">Sort by Part Number</SelectItem>
-            <SelectItem value="location">Sort by Location</SelectItem>
-          </SelectContent>
-        </Select>
+      <div className="hidden md:flex items-center justify-end gap-4 mb-2">
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <Checkbox
+            checked={hideCompleted}
+            onCheckedChange={(checked) => setHideCompleted(checked === true)}
+          />
+          <span className="text-sm font-medium">Hide completed items</span>
+          {hiddenCount > 0 && (
+            <Badge variant="secondary" className="text-xs">
+              {hiddenCount} hidden
+            </Badge>
+          )}
+        </label>
+        <div className="flex items-center gap-2">
+          <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
+          <Select value={sortMode} onValueChange={(v) => setSortMode(v as SortMode)}>
+            <SelectTrigger className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="part_number">Sort by Part Number</SelectItem>
+              <SelectItem value="location">Sort by Location</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Desktop Table Header */}

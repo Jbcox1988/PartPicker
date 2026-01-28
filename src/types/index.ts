@@ -98,6 +98,7 @@ export interface ConsolidatedPart {
   part_number: string;
   description: string | null;
   location: string | null;
+  qty_available: number | null;
   total_needed: number;
   total_picked: number;
   remaining: number;

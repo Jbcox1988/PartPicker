@@ -78,7 +78,20 @@ function PartCard({ part, isExpanded, onToggleExpand, onPickClick }: PartCardPro
             </Badge>
           )}
 
-          {/* Row 3: Progress and quantities */}
+          {/* Row 3: Qty Available */}
+          {part.qty_available !== null && (
+            <div className="text-sm">
+              <span className="text-muted-foreground">Available: </span>
+              <span className={cn(
+                "font-semibold",
+                part.qty_available >= part.remaining ? "text-green-600" : "text-amber-600"
+              )}>
+                {part.qty_available}
+              </span>
+            </div>
+          )}
+
+          {/* Row 4: Progress and quantities */}
           <div className="flex items-center gap-3">
             <div className="flex-1">
               <Progress value={progressPercent} className="h-2" />
@@ -136,6 +149,19 @@ function PartCard({ part, isExpanded, onToggleExpand, onPickClick }: PartCardPro
               </p>
             )}
           </div>
+
+          {/* Qty Available */}
+          {part.qty_available !== null && (
+            <div className="text-center shrink-0 min-w-[70px]">
+              <div className={cn(
+                "text-lg font-bold",
+                part.qty_available >= part.remaining ? "text-green-600" : "text-amber-600"
+              )}>
+                {part.qty_available}
+              </div>
+              <p className="text-xs text-muted-foreground">available</p>
+            </div>
+          )}
 
           <div className="text-right shrink-0">
             <div className="flex items-center gap-2">
