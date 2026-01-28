@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { fetchAllFromTable } from '@/lib/supabasePagination';
 import type { Issue, IssueWithDetails, IssueType } from '@/types';
 
 export function useIssues(orderId?: string) {
@@ -12,24 +13,21 @@ export function useIssues(orderId?: string) {
       setLoading(true);
       setError(null);
 
-      let query = supabase
-        .from('issues')
-        .select(`
+      // Use pagination to handle >1000 issues over time
+      const data = await fetchAllFromTable<IssueWithDetails>(
+        'issues',
+        `
           *,
           line_item:line_items(*),
           order:orders(*)
-        `)
-        .order('created_at', { ascending: false });
+        `,
+        {
+          filter: orderId ? (q) => q.eq('order_id', orderId) : undefined,
+          order: { column: 'created_at', ascending: false },
+        }
+      );
 
-      if (orderId) {
-        query = query.eq('order_id', orderId);
-      }
-
-      const { data, error: fetchError } = await query;
-
-      if (fetchError) throw fetchError;
-
-      setIssues(data || []);
+      setIssues(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch issues');
     } finally {

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { fetchAllFromTable } from '@/lib/supabasePagination';
 import type { ItemToOrder } from '@/types';
 
 export function useItemsToOrder() {
@@ -12,33 +13,50 @@ export function useItemsToOrder() {
       setLoading(true);
       setError(null);
 
-      // Fetch all line items from active orders (we'll filter by insufficient stock after calculating picks)
-      const { data: lineItemsData, error: lineItemsError } = await supabase
-        .from('line_items')
-        .select(`
-          id,
-          part_number,
-          description,
-          location,
-          qty_available,
-          total_qty_needed,
-          order_id,
-          orders!inner (
+      // Fetch all line items from active orders with pagination to avoid Supabase's 1000 row limit
+      const PAGE_SIZE = 1000;
+      let allLineItems: any[] = [];
+      let page = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        const { data: pageData, error: pageError } = await supabase
+          .from('line_items')
+          .select(`
             id,
-            so_number,
-            status
-          )
-        `)
-        .eq('orders.status', 'active');
+            part_number,
+            description,
+            location,
+            qty_available,
+            total_qty_needed,
+            order_id,
+            orders!inner (
+              id,
+              so_number,
+              status
+            )
+          `)
+          .eq('orders.status', 'active')
+          .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
-      if (lineItemsError) throw lineItemsError;
+        if (pageError) throw pageError;
 
-      // Fetch all picks for these line items
-      const { data: picksData, error: picksError } = await supabase
-        .from('picks')
-        .select('line_item_id, qty_picked');
+        if (pageData && pageData.length > 0) {
+          allLineItems = allLineItems.concat(pageData);
+          hasMore = pageData.length === PAGE_SIZE;
+          page++;
+        } else {
+          hasMore = false;
+        }
+      }
 
-      if (picksError) throw picksError;
+      const lineItemsData = allLineItems;
+
+      // Fetch all picks with pagination
+      const picksData = await fetchAllFromTable<{ line_item_id: string; qty_picked: number }>(
+        'picks',
+        'line_item_id, qty_picked'
+      );
 
       // Calculate picks per line item
       const picksByLineItem = new Map<string, number>();

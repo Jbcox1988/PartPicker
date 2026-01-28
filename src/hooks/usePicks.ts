@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { fetchAllFromTable } from '@/lib/supabasePagination';
 import type { Pick, LineItemWithPicks, RecentActivity } from '@/types';
 
 export function usePicks(orderId: string | undefined) {
@@ -18,14 +19,15 @@ export function usePicks(orderId: string | undefined) {
       setLoading(true);
       setError(null);
 
-      // Fetch line items for this order
-      const { data: lineItemsData, error: lineItemsError } = await supabase
-        .from('line_items')
-        .select('*')
-        .eq('order_id', orderId)
-        .order('part_number');
-
-      if (lineItemsError) throw lineItemsError;
+      // Fetch line items for this order (with pagination for large orders)
+      const lineItemsData = await fetchAllFromTable(
+        'line_items',
+        '*',
+        {
+          filter: (q) => q.eq('order_id', orderId),
+          order: { column: 'part_number', ascending: true },
+        }
+      );
 
       // Fetch picks for these line items
       const lineItemIds = (lineItemsData || []).map(item => item.id);

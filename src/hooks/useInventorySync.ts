@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { fetchAllFromTable } from '@/lib/supabasePagination';
 import { parseInventoryFile, type InventoryMap } from '@/lib/inventoryParser';
 
 interface SyncResult {
@@ -42,12 +43,15 @@ export function useInventorySync() {
 
       // Get all unique part numbers from line_items
       // Only select id and part_number - qty_available column may not exist yet
-      const { data: lineItems, error: fetchError } = await supabase
-        .from('line_items')
-        .select('id, part_number');
-
-      if (fetchError) {
-        throw new Error(`Failed to fetch line items: ${fetchError.message}`);
+      // Use pagination to handle >1000 rows
+      let lineItems: { id: string; part_number: string }[];
+      try {
+        lineItems = await fetchAllFromTable<{ id: string; part_number: string }>(
+          'line_items',
+          'id, part_number'
+        );
+      } catch (fetchError) {
+        throw new Error(`Failed to fetch line items: ${fetchError instanceof Error ? fetchError.message : 'Unknown error'}`);
       }
 
       if (!lineItems || lineItems.length === 0) {

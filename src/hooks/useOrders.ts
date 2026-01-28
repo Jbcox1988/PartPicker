@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { fetchAllFromTable } from '@/lib/supabasePagination';
 import type { Order, OrderWithProgress, Tool, LineItem, ImportedOrder } from '@/types';
 
 export function useOrders() {
@@ -24,17 +25,17 @@ export function useOrders() {
       if (ordersError) throw ordersError;
 
       // Fetch line items and picks for progress calculation
-      const { data: lineItemsData, error: lineItemsError } = await supabase
-        .from('line_items')
-        .select('id, order_id, total_qty_needed');
-
-      if (lineItemsError) throw lineItemsError;
-
-      const { data: picksData, error: picksError } = await supabase
-        .from('picks')
-        .select('line_item_id, qty_picked');
-
-      if (picksError) throw picksError;
+      // Use pagination to handle >1000 rows
+      const [lineItemsData, picksData] = await Promise.all([
+        fetchAllFromTable<{ id: string; order_id: string; total_qty_needed: number }>(
+          'line_items',
+          'id, order_id, total_qty_needed'
+        ),
+        fetchAllFromTable<{ line_item_id: string; qty_picked: number }>(
+          'picks',
+          'line_item_id, qty_picked'
+        ),
+      ]);
 
       // Calculate progress for each order
       const picksByLineItem = new Map<string, number>();
@@ -265,19 +266,30 @@ export function useOrder(orderId: string | undefined) {
       setLoading(true);
       setError(null);
 
-      const [orderRes, toolsRes, itemsRes] = await Promise.all([
-        supabase.from('orders').select('*').eq('id', orderId).single(),
-        supabase.from('tools').select('*').eq('order_id', orderId).order('tool_number'),
-        supabase.from('line_items').select('*').eq('order_id', orderId).order('part_number'),
+      // Fetch order details
+      const { data: orderData, error: orderError } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('id', orderId)
+        .single();
+
+      if (orderError) throw orderError;
+
+      // Fetch tools and line items with pagination (large orders could have >1000 parts)
+      const [toolsData, lineItemsData] = await Promise.all([
+        fetchAllFromTable<Tool>('tools', '*', {
+          filter: (q) => q.eq('order_id', orderId),
+          order: { column: 'tool_number', ascending: true },
+        }),
+        fetchAllFromTable<LineItem>('line_items', '*', {
+          filter: (q) => q.eq('order_id', orderId),
+          order: { column: 'part_number', ascending: true },
+        }),
       ]);
 
-      if (orderRes.error) throw orderRes.error;
-      if (toolsRes.error) throw toolsRes.error;
-      if (itemsRes.error) throw itemsRes.error;
-
-      setOrder(orderRes.data);
-      setTools(toolsRes.data || []);
-      setLineItems(itemsRes.data || []);
+      setOrder(orderData);
+      setTools(toolsData);
+      setLineItems(lineItemsData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch order');
     } finally {

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { fetchAllFromTable } from '@/lib/supabasePagination';
 import type { PartsCatalogItem, PartConflict, ImportedLineItem } from '@/types';
 
 export function usePartsCatalog() {
@@ -12,13 +13,14 @@ export function usePartsCatalog() {
       setLoading(true);
       setError(null);
 
-      const { data, error: fetchError } = await supabase
-        .from('parts_catalog')
-        .select('*')
-        .order('part_number');
+      // Use pagination to handle >1000 parts in catalog
+      const data = await fetchAllFromTable<PartsCatalogItem>(
+        'parts_catalog',
+        '*',
+        { order: { column: 'part_number', ascending: true } }
+      );
 
-      if (fetchError) throw fetchError;
-      setParts(data || []);
+      setParts(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch parts catalog');
     } finally {

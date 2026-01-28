@@ -14,34 +14,53 @@ export function useConsolidatedParts(statusFilter: OrderStatusFilter = 'all') {
       setLoading(true);
       setError(null);
 
-      // Build query based on status filter
-      let query = supabase
-        .from('line_items')
-        .select(`
-          id,
-          part_number,
-          description,
-          location,
-          total_qty_needed,
-          order_id,
-          orders!inner (
-            id,
-            so_number,
-            status
-          )
-        `)
-        .neq('orders.status', 'cancelled'); // Always exclude cancelled orders
+      // Fetch all line items with pagination to avoid Supabase's 1000 row default limit
+      const PAGE_SIZE = 1000;
+      let allLineItems: any[] = [];
+      let page = 0;
+      let hasMore = true;
 
-      // Apply additional status filter if not 'all'
-      if (statusFilter === 'active') {
-        query = query.eq('orders.status', 'active');
-      } else if (statusFilter === 'complete') {
-        query = query.eq('orders.status', 'complete');
+      while (hasMore) {
+        // Build query based on status filter
+        let query = supabase
+          .from('line_items')
+          .select(`
+            id,
+            part_number,
+            description,
+            location,
+            total_qty_needed,
+            order_id,
+            orders!inner (
+              id,
+              so_number,
+              status
+            )
+          `)
+          .neq('orders.status', 'cancelled') // Always exclude cancelled orders
+          .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+
+        // Apply additional status filter if not 'all'
+        if (statusFilter === 'active') {
+          query = query.eq('orders.status', 'active');
+        } else if (statusFilter === 'complete') {
+          query = query.eq('orders.status', 'complete');
+        }
+
+        const { data: pageData, error: pageError } = await query;
+
+        if (pageError) throw pageError;
+
+        if (pageData && pageData.length > 0) {
+          allLineItems = allLineItems.concat(pageData);
+          hasMore = pageData.length === PAGE_SIZE;
+          page++;
+        } else {
+          hasMore = false;
+        }
       }
 
-      const { data: lineItemsData, error: lineItemsError } = await query;
-
-      if (lineItemsError) throw lineItemsError;
+      const lineItemsData = allLineItems;
 
       // Extract line item IDs to filter picks server-side
       const lineItemIds = (lineItemsData || []).map(item => item.id);
