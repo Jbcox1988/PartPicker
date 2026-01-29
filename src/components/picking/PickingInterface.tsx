@@ -24,6 +24,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import type { Tool, LineItem, LineItemWithPicks, Pick, IssueType } from '@/types';
 import { Layers, SplitSquareVertical } from 'lucide-react';
 import { useSettings } from '@/hooks/useSettings';
+import { useKeyboardNavigation } from '@/hooks/useKeyboardNavigation';
 import { cn, formatDateTime, getLocationPrefix, alphanumericCompare } from '@/lib/utils';
 import { ReportIssueDialog } from './ReportIssueDialog';
 import { DistributeInventoryDialog } from './DistributeInventoryDialog';
@@ -341,6 +342,21 @@ export function PickingInterface({
 
     setIsSubmitting(null);
   }, [toolPicks, tool.id, onRecordPick, getUserName, pendingPicks]);
+
+  // Keyboard navigation for picking
+  // Arrow keys to navigate, Enter/Space to pick, Escape to clear selection
+  const { selectedId: keyboardSelectedId } = useKeyboardNavigation({
+    items: sortedItems,
+    enabled: true,
+    getItemId: (item) => item.id,
+    onAction: (item) => {
+      const pickedForTool = toolPicks.get(item.id) || 0;
+      const remaining = item.qty_per_unit - pickedForTool;
+      if (remaining > 0 && !isSubmitting) {
+        handleQuickPick(item);
+      }
+    },
+  });
 
   // Pick for a specific tool from the tool indicators
   const handlePickForSpecificTool = useCallback(async (item: LineItem, targetToolId: string) => {
@@ -688,18 +704,20 @@ export function PickingInterface({
     // Check for low stock warning (not enough available to complete remaining picks)
     const remainingToPick = totalNeeded - totalPicked;
     const isLowStock = item.qty_available !== null && item.qty_available < remainingToPick && !allToolsComplete;
+    const isKeyboardSelected = keyboardSelectedId === item.id;
 
     return (
       <div key={item.id} className="hidden md:block space-y-0">
         {/* Main Row */}
         <div
           className={cn(
-            'grid gap-2 px-3 py-3 rounded-lg border items-center grid-cols-12',
+            'grid gap-2 px-3 py-3 rounded-lg border items-center grid-cols-12 transition-all',
             allToolsComplete ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800' : 'bg-white dark:bg-card',
             itemHasIssue && !allToolsComplete && 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800',
             isLowStock && !itemHasIssue && 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800',
             isSubmitting === item.id && 'opacity-50',
-            isExpanded && 'rounded-b-none'
+            isExpanded && 'rounded-b-none',
+            isKeyboardSelected && 'ring-2 ring-blue-500 ring-offset-1'
           )}
         >
           {/* Expand Toggle + Part Number */}
@@ -985,6 +1003,7 @@ export function PickingInterface({
     // Check for low stock warning (not enough available to complete remaining picks)
     const remainingToPick = totalNeeded - totalPicked;
     const isLowStock = item.qty_available !== null && item.qty_available < remainingToPick && !allToolsComplete;
+    const isKeyboardSelected = keyboardSelectedId === item.id;
 
     return (
       <div
@@ -1009,6 +1028,7 @@ export function PickingInterface({
           className={cn(
             'relative flex flex-col p-4 border rounded-xl shadow-sm bg-white dark:bg-card transition-transform',
             allToolsComplete ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800' : '',
+            isKeyboardSelected && 'ring-2 ring-blue-500 ring-offset-1',
             itemHasIssue && !allToolsComplete && 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800',
             isLowStock && !itemHasIssue && 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800',
             isSubmitting === item.id && 'opacity-50'

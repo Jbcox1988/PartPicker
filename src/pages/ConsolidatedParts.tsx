@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, Package, ChevronDown, ChevronRight, MapPin, ArrowUpDown, X, Download, ClipboardList, CheckCircle2, Clock, Layers, Filter, List } from 'lucide-react';
+import { Package, ChevronDown, ChevronRight, MapPin, ArrowUpDown, X, Download, ClipboardList, CheckCircle2, Clock, Layers, List } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
+import { SearchInput } from '@/components/common/SearchInput';
+import { OrderFilterPopover } from '@/components/common/OrderFilterPopover';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
@@ -13,7 +14,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useConsolidatedParts, type OrderStatusFilter } from '@/hooks/useConsolidatedParts';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
@@ -444,25 +444,12 @@ export function ConsolidatedParts() {
         <CardContent className="pt-6">
           <div className="flex flex-col gap-4">
             {/* Prominent Search Bar */}
-            <div className="relative">
-              <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search by part number, description, or location..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-12 pr-12 h-12 text-lg border-2 focus-visible:ring-primary"
-              />
-              {searchQuery && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8"
-                  onClick={() => setSearchQuery('')}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              )}
-            </div>
+            <SearchInput
+              value={searchQuery}
+              onChange={setSearchQuery}
+              placeholder="Search by part number, description, or location..."
+              large
+            />
             {/* Filter Options Row */}
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               {/* Order Status Filter Buttons */}
@@ -504,53 +491,13 @@ export function ConsolidatedParts() {
                   </SelectContent>
                 </Select>
 
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-48 justify-between">
-                      <span className="flex items-center gap-2">
-                        <Filter className="h-4 w-4" />
-                        {selectedOrders.size === 0
-                          ? 'All Orders'
-                          : `${selectedOrders.size} Order${selectedOrders.size !== 1 ? 's' : ''}`}
-                      </span>
-                      <ChevronDown className="h-4 w-4 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-56 p-0" align="start">
-                    <div className="p-2 border-b flex gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="flex-1 h-8"
-                        onClick={selectAllOrders}
-                      >
-                        Select All
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="flex-1 h-8"
-                        onClick={deselectAllOrders}
-                      >
-                        Clear
-                      </Button>
-                    </div>
-                    <div className="max-h-64 overflow-y-auto p-2">
-                      {uniqueOrders.map((order) => (
-                        <label
-                          key={order.id}
-                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-muted rounded cursor-pointer"
-                        >
-                          <Checkbox
-                            checked={selectedOrders.has(order.id)}
-                            onCheckedChange={() => toggleOrder(order.id)}
-                          />
-                          <span className="text-sm">SO-{order.so_number}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </PopoverContent>
-                </Popover>
+                <OrderFilterPopover
+                  orders={uniqueOrders}
+                  selectedOrders={selectedOrders}
+                  onToggleOrder={toggleOrder}
+                  onSelectAll={selectAllOrders}
+                  onDeselectAll={deselectAllOrders}
+                />
 
                 {hasActiveFilters && (
                   <Button
