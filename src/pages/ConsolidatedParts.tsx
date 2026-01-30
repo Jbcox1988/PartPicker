@@ -278,6 +278,7 @@ export function ConsolidatedParts() {
   const debouncedSearch = useDebouncedValue(searchQuery, 300);
   const [expandedParts, setExpandedParts] = useState<Set<string>>(new Set());
   const [showCompleted, setShowCompleted] = useState(false);
+  const [hideOutOfStock, setHideOutOfStock] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>(() => {
     const saved = localStorage.getItem(CONSOLIDATED_SORT_PREFERENCE_KEY);
     return (saved as SortMode) || 'part_number';
@@ -350,7 +351,9 @@ export function ConsolidatedParts() {
     const matchesOrder = selectedOrders.size === 0
       || part.orders.some(o => selectedOrders.has(o.order_id));
 
-    return matchesSearch && matchesCompleted && matchesOrder;
+    const matchesStock = !hideOutOfStock || (part.qty_available !== null && part.qty_available !== 0);
+
+    return matchesSearch && matchesCompleted && matchesOrder && matchesStock;
   });
 
   // Sort and group filtered parts
@@ -565,13 +568,22 @@ export function ConsolidatedParts() {
 
             {/* Additional Filters Row */}
             <div className="flex items-center gap-4 justify-between">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <Checkbox
-                  checked={showCompleted}
-                  onCheckedChange={(checked) => setShowCompleted(checked === true)}
-                />
-                <span className="text-sm font-medium">Show completed parts</span>
-              </label>
+              <div className="flex items-center gap-4 flex-wrap">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <Checkbox
+                    checked={showCompleted}
+                    onCheckedChange={(checked) => setShowCompleted(checked === true)}
+                  />
+                  <span className="text-sm font-medium">Show completed parts</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <Checkbox
+                    checked={hideOutOfStock}
+                    onCheckedChange={(checked) => setHideOutOfStock(checked === true)}
+                  />
+                  <span className="text-sm font-medium">Hide out of stock</span>
+                </label>
+              </div>
               {(debouncedSearch || hasActiveFilters) && (
                 <span className="text-sm text-muted-foreground">
                   {filteredParts.length} result{filteredParts.length !== 1 ? 's' : ''}
