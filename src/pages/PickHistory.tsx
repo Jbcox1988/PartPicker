@@ -75,6 +75,10 @@ export function PickHistory() {
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [totalPickCount, setTotalPickCount] = useState(0);
+  const [totalQtyPicked, setTotalQtyPicked] = useState(0);
+  const [allUniqueParts, setAllUniqueParts] = useState(0);
+  const [allUniqueUsers, setAllUniqueUsers] = useState(0);
+  const [totalIssueCount, setTotalIssueCount] = useState(0);
 
   // Activity type filters
   const [showPicks, setShowPicks] = useState(true);
@@ -144,6 +148,28 @@ export function PickHistory() {
       setTotalPickCount(picksCount || 0);
       setHasMore((picksData?.length || 0) === PAGE_SIZE);
 
+      // Fetch ALL picks for accurate stats (separate lightweight query)
+      const { data: allPicksData } = await supabase
+        .from('picks')
+        .select(`
+          qty_picked,
+          picked_by,
+          line_items!inner (
+            part_number
+          )
+        `)
+        .gte('picked_at', startISO)
+        .lte('picked_at', endISO);
+
+      if (allPicksData) {
+        const totalQty = allPicksData.reduce((sum: number, p: any) => sum + (p.qty_picked || 0), 0);
+        const uniqueParts = new Set(allPicksData.map((p: any) => p.line_items?.part_number).filter(Boolean)).size;
+        const uniqueUsers = new Set(allPicksData.map((p: any) => p.picked_by).filter(Boolean)).size;
+        setTotalQtyPicked(totalQty);
+        setAllUniqueParts(uniqueParts);
+        setAllUniqueUsers(uniqueUsers);
+      }
+
       // Fetch issues (only on first page to avoid complexity)
       if (page === 0) {
         const { data: issuesData, error: issuesError } = await supabase
@@ -211,6 +237,7 @@ export function PickHistory() {
         }
 
         setIssues(transformedIssues);
+        setTotalIssueCount(transformedIssues.length);
       }
     } catch (err) {
       console.error('Error fetching data:', err);
@@ -373,6 +400,28 @@ export function PickHistory() {
         setTotalPickCount(picksCount || 0);
         setHasMore((picksData?.length || 0) === PAGE_SIZE);
 
+        // Fetch ALL picks for accurate stats (separate lightweight query)
+        const { data: allPicksData } = await supabase
+          .from('picks')
+          .select(`
+            qty_picked,
+            picked_by,
+            line_items!inner (
+              part_number
+            )
+          `)
+          .gte('picked_at', startISO)
+          .lte('picked_at', endISO);
+
+        if (allPicksData) {
+          const totalQty = allPicksData.reduce((sum: number, p: any) => sum + (p.qty_picked || 0), 0);
+          const uniqueParts = new Set(allPicksData.map((p: any) => p.line_items?.part_number).filter(Boolean)).size;
+          const uniqueUsers = new Set(allPicksData.map((p: any) => p.picked_by).filter(Boolean)).size;
+          setTotalQtyPicked(totalQty);
+          setAllUniqueParts(uniqueParts);
+          setAllUniqueUsers(uniqueUsers);
+        }
+
         // Fetch issues
         const { data: issuesData, error: issuesError } = await supabase
           .from('issues')
@@ -437,6 +486,7 @@ export function PickHistory() {
         }
 
         setIssues(transformedIssues);
+        setTotalIssueCount(transformedIssues.length);
       } catch (err) {
         console.error('Error fetching data:', err);
         setPicks([]);
@@ -597,31 +647,31 @@ export function PickHistory() {
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
             <Card>
               <CardContent className="pt-4">
-                <div className="text-2xl font-bold">{summaryStats.pickCount.toLocaleString()}</div>
+                <div className="text-2xl font-bold">{totalPickCount.toLocaleString()}</div>
                 <p className="text-xs text-muted-foreground">Picks</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="pt-4">
-                <div className="text-2xl font-bold">{summaryStats.totalQty.toLocaleString()}</div>
+                <div className="text-2xl font-bold">{totalQtyPicked.toLocaleString()}</div>
                 <p className="text-xs text-muted-foreground">Qty Picked</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="pt-4">
-                <div className="text-2xl font-bold">{summaryStats.uniqueParts}</div>
+                <div className="text-2xl font-bold">{allUniqueParts}</div>
                 <p className="text-xs text-muted-foreground">Unique Parts</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="pt-4">
-                <div className="text-2xl font-bold">{summaryStats.uniqueUsers}</div>
+                <div className="text-2xl font-bold">{allUniqueUsers}</div>
                 <p className="text-xs text-muted-foreground">Users</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="pt-4">
-                <div className="text-2xl font-bold">{summaryStats.issueCount}</div>
+                <div className="text-2xl font-bold">{totalIssueCount}</div>
                 <p className="text-xs text-muted-foreground">Issues</p>
               </CardContent>
             </Card>
