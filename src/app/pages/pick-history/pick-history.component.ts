@@ -7,6 +7,7 @@ import { ExcelService } from '../../services/excel.service';
 
 interface PickRecord {
   id: string;
+  type: 'pick';
   qty_picked: number;
   picked_by: string | null;
   picked_at: string;
@@ -19,8 +20,22 @@ interface PickRecord {
   order_id: string;
 }
 
-interface GroupedPicks {
-  [date: string]: PickRecord[];
+interface IssueRecord {
+  id: string;
+  type: 'issue_created' | 'issue_resolved';
+  issue_type: string;
+  description: string | null;
+  user: string | null;
+  timestamp: string;
+  part_number: string;
+  so_number: string;
+  order_id: string;
+}
+
+type ActivityRecord = PickRecord | IssueRecord;
+
+interface GroupedActivities {
+  [date: string]: ActivityRecord[];
 }
 
 interface DatePreset {
@@ -40,10 +55,10 @@ const PAGE_SIZE = 50;
       <div class="d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-3">
         <div>
           <h1 class="h3 fw-bold d-flex align-items-center gap-2 mb-1">
-            <i class="bi bi-clock"></i>
-            Pick History
+            <i class="bi bi-clock-history"></i>
+            Activity History
           </h1>
-          <p class="text-muted mb-0">Filter picks by date and time range</p>
+          <p class="text-muted mb-0">View picks and issues by date range</p>
         </div>
       </div>
 
@@ -95,19 +110,32 @@ const PAGE_SIZE = 50;
             </div>
           </div>
 
+          <!-- Activity Type Filters -->
+          <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
+            <span class="fw-medium small">Show:</span>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="showPicks" [(ngModel)]="showPicks">
+              <label class="form-check-label" for="showPicks">Picks</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="showIssues" [(ngModel)]="showIssues">
+              <label class="form-check-label" for="showIssues">Issues</label>
+            </div>
+          </div>
+
           <!-- Search Button -->
           <div class="d-flex flex-column flex-sm-row gap-2">
-            <button class="btn btn-primary" [disabled]="loading" (click)="fetchPicks()">
+            <button class="btn btn-primary" [disabled]="loading" (click)="fetchData()">
               <i class="bi bi-search me-2" [class.spin]="loading"></i>
-              {{ loading ? 'Searching...' : 'Search Picks' }}
+              {{ loading ? 'Searching...' : 'Search' }}
             </button>
             <button
-              *ngIf="hasSearched && filteredPicks.length > 0"
+              *ngIf="hasSearched && filteredActivities.length > 0"
               class="btn btn-outline-secondary"
               (click)="exportToExcel()"
             >
               <i class="bi bi-download me-2"></i>
-              Export to Excel
+              Export Picks to Excel
             </button>
           </div>
         </div>
@@ -117,23 +145,23 @@ const PAGE_SIZE = 50;
       <ng-container *ngIf="hasSearched">
         <!-- Summary Stats -->
         <div class="row g-3">
-          <div class="col-6 col-sm-3">
+          <div class="col-6 col-sm">
             <div class="card">
               <div class="card-body py-3">
-                <div class="fs-4 fw-bold">{{ totalCount | number }}</div>
-                <p class="text-muted small mb-0">Total Picks</p>
+                <div class="fs-4 fw-bold">{{ summaryStats.pickCount | number }}</div>
+                <p class="text-muted small mb-0">Picks</p>
               </div>
             </div>
           </div>
-          <div class="col-6 col-sm-3">
+          <div class="col-6 col-sm">
             <div class="card">
               <div class="card-body py-3">
                 <div class="fs-4 fw-bold">{{ summaryStats.totalQty | number }}</div>
-                <p class="text-muted small mb-0">Total Qty Picked</p>
+                <p class="text-muted small mb-0">Qty Picked</p>
               </div>
             </div>
           </div>
-          <div class="col-6 col-sm-3">
+          <div class="col-6 col-sm">
             <div class="card">
               <div class="card-body py-3">
                 <div class="fs-4 fw-bold">{{ summaryStats.uniqueParts }}</div>
@@ -141,11 +169,19 @@ const PAGE_SIZE = 50;
               </div>
             </div>
           </div>
-          <div class="col-6 col-sm-3">
+          <div class="col-6 col-sm">
             <div class="card">
               <div class="card-body py-3">
                 <div class="fs-4 fw-bold">{{ summaryStats.uniqueUsers }}</div>
-                <p class="text-muted small mb-0">Pickers</p>
+                <p class="text-muted small mb-0">Users</p>
+              </div>
+            </div>
+          </div>
+          <div class="col-6 col-sm">
+            <div class="card">
+              <div class="card-body py-3">
+                <div class="fs-4 fw-bold">{{ summaryStats.issueCount }}</div>
+                <p class="text-muted small mb-0">Issues</p>
               </div>
             </div>
           </div>
@@ -174,17 +210,15 @@ const PAGE_SIZE = 50;
           </div>
         </div>
 
-        <!-- Pick List -->
+        <!-- Activity List -->
         <div class="card">
           <div class="card-header">
             <h5 class="card-title mb-0 d-flex align-items-center gap-2">
               <i class="bi bi-file-earmark-spreadsheet"></i>
-              Pick Records
+              Activity Records
             </h5>
             <small class="text-muted">
-              {{ filteredPicks.length === totalCount
-                ? (totalCount | number) + ' picks found'
-                : 'Showing ' + filteredPicks.length + ' of ' + (totalCount | number) + ' picks' }}
+              {{ filteredActivities.length | number }} records found
             </small>
           </div>
           <div class="card-body">
@@ -194,28 +228,28 @@ const PAGE_SIZE = 50;
             </div>
 
             <!-- Empty State -->
-            <div *ngIf="!loading && filteredPicks.length === 0" class="text-center py-5 text-muted">
-              {{ searchQuery ? 'No picks match your search' : 'No picks found in this date range' }}
+            <div *ngIf="!loading && filteredActivities.length === 0" class="text-center py-5 text-muted">
+              {{ searchQuery ? 'No activities match your search' : 'No activities found in this date range' }}
             </div>
 
-            <!-- Pick List -->
-            <div *ngIf="!loading && filteredPicks.length > 0">
+            <!-- Activity List -->
+            <div *ngIf="!loading && filteredActivities.length > 0">
               <div *ngFor="let dateGroup of groupedDates" class="mb-4">
                 <!-- Date Header -->
                 <h6 class="text-muted small fw-semibold mb-3 sticky-top bg-white py-1 d-flex justify-content-between align-items-center">
                   <span>{{ formatDateHeader(dateGroup) }}</span>
-                  <span class="badge bg-secondary">{{ groupedPicks[dateGroup].length }} picks</span>
+                  <span class="badge bg-secondary">{{ groupedActivities[dateGroup].length }} records</span>
                 </h6>
 
-                <!-- Picks for this date -->
+                <!-- Activities for this date -->
                 <div class="d-flex flex-column gap-2">
                   <div
-                    *ngFor="let pick of groupedPicks[dateGroup]"
-                    class="d-flex align-items-start gap-3 p-3 border rounded pick-item"
+                    *ngFor="let activity of groupedActivities[dateGroup]"
+                    class="d-flex align-items-start gap-3 p-3 border rounded activity-item"
                   >
                     <!-- Icon -->
                     <div class="mt-1">
-                      <i class="bi bi-box-seam text-success"></i>
+                      <i [class]="getActivityIconClass(activity.type)"></i>
                     </div>
 
                     <!-- Content -->
@@ -223,36 +257,47 @@ const PAGE_SIZE = 50;
                       <div class="d-flex align-items-center gap-2 flex-wrap">
                         <span class="fw-medium d-flex align-items-center gap-1">
                           <i class="bi bi-person text-muted small"></i>
-                          {{ pick.picked_by || 'Unknown' }}
+                          {{ getActivityUser(activity) }}
                         </span>
-                        <span class="badge bg-success-subtle text-success border border-success-subtle">
-                          {{ pick.qty_picked }}x
+                        <span [class]="getActivityBadgeClass(activity.type)">
+                          {{ getActivityBadgeText(activity.type) }}
+                        </span>
+                        <span *ngIf="activity.type === 'pick'" class="badge bg-success-subtle text-success border border-success-subtle">
+                          {{ activity.qty_picked }}x
                         </span>
                         <a
-                          [routerLink]="['/orders', pick.order_id]"
+                          [routerLink]="['/orders', activity.order_id]"
                           class="text-primary text-decoration-none small"
                         >
-                          SO-{{ pick.so_number }}
+                          SO-{{ activity.so_number }}
                         </a>
-                        <span class="badge bg-secondary-subtle text-secondary">
-                          {{ pick.tool_number }}
+                        <span *ngIf="activity.type === 'pick'" class="badge bg-secondary-subtle text-secondary">
+                          {{ activity.tool_number }}
                         </span>
                       </div>
                       <p class="small mb-0 mt-1">
-                        <span class="font-monospace fw-medium">{{ pick.part_number }}</span>
-                        <span *ngIf="pick.description" class="text-muted"> - {{ pick.description }}</span>
+                        <span class="font-monospace fw-medium">{{ activity.part_number }}</span>
+                        <ng-container *ngIf="activity.type === 'pick'">
+                          <span *ngIf="activity.description" class="text-muted"> - {{ activity.description }}</span>
+                        </ng-container>
+                        <ng-container *ngIf="activity.type !== 'pick'">
+                          <span class="text-muted"> - {{ activity.issue_type.replace('_', ' ') }}</span>
+                        </ng-container>
                       </p>
-                      <p *ngIf="pick.location" class="text-muted small mb-0 mt-1">
-                        Location: {{ pick.location }}
+                      <p *ngIf="activity.type === 'pick' && activity.location" class="text-muted small mb-0 mt-1">
+                        Location: {{ activity.location }}
                       </p>
-                      <p *ngIf="pick.notes" class="text-muted small mb-0 mt-1 fst-italic">
-                        Note: {{ pick.notes }}
+                      <p *ngIf="activity.type === 'pick' && activity.notes" class="text-muted small mb-0 mt-1 fst-italic">
+                        Note: {{ activity.notes }}
+                      </p>
+                      <p *ngIf="activity.type !== 'pick' && activity.description" class="text-muted small mb-0 mt-1 fst-italic">
+                        {{ activity.description }}
                       </p>
                     </div>
 
                     <!-- Time -->
                     <div class="text-muted small text-nowrap">
-                      {{ formatTime(pick.picked_at) }}
+                      {{ formatTime(getActivityTimestamp(activity)) }}
                     </div>
                   </div>
                 </div>
@@ -296,7 +341,7 @@ const PAGE_SIZE = 50;
       to { transform: rotate(360deg); }
     }
 
-    .pick-item:hover {
+    .activity-item:hover {
       background-color: var(--bs-light);
     }
 
@@ -307,12 +352,17 @@ const PAGE_SIZE = 50;
 })
 export class PickHistoryComponent implements OnInit {
   picks: PickRecord[] = [];
+  issues: IssueRecord[] = [];
   loading = false;
   searchQuery = '';
   page = 0;
   hasMore = true;
-  totalCount = 0;
+  totalPickCount = 0;
   hasSearched = false;
+
+  // Activity type filters
+  showPicks = true;
+  showIssues = true;
 
   // Date filters - default to today
   startDate = '';
@@ -387,48 +437,89 @@ export class PickHistoryComponent implements OnInit {
     this.endDate = this.formatDateTimeLocal(this.endOfDay(today));
   }
 
-  get filteredPicks(): PickRecord[] {
-    if (!this.searchQuery) return this.picks;
+  get allActivities(): ActivityRecord[] {
+    const activities: ActivityRecord[] = [];
 
-    const query = this.searchQuery.toLowerCase();
-    return this.picks.filter(pick =>
-      (pick.picked_by && pick.picked_by.toLowerCase().includes(query)) ||
-      pick.part_number.toLowerCase().includes(query) ||
-      pick.so_number.toLowerCase().includes(query) ||
-      pick.tool_number.toLowerCase().includes(query) ||
-      (pick.description && pick.description.toLowerCase().includes(query)) ||
-      (pick.location && pick.location.toLowerCase().includes(query))
-    );
+    if (this.showPicks) {
+      activities.push(...this.picks);
+    }
+
+    if (this.showIssues && this.page === 0) {
+      activities.push(...this.issues);
+    }
+
+    // Sort by timestamp descending
+    activities.sort((a, b) => {
+      const timeA = a.type === 'pick' ? a.picked_at : a.timestamp;
+      const timeB = b.type === 'pick' ? b.picked_at : b.timestamp;
+      return new Date(timeB).getTime() - new Date(timeA).getTime();
+    });
+
+    return activities;
   }
 
-  get groupedPicks(): GroupedPicks {
-    const groups: GroupedPicks = {};
+  get filteredActivities(): ActivityRecord[] {
+    if (!this.searchQuery) return this.allActivities;
 
-    for (const pick of this.filteredPicks) {
-      const date = new Date(pick.picked_at).toISOString().split('T')[0];
+    const query = this.searchQuery.toLowerCase();
+    return this.allActivities.filter(activity => {
+      if (activity.type === 'pick') {
+        return (
+          (activity.picked_by && activity.picked_by.toLowerCase().includes(query)) ||
+          activity.part_number.toLowerCase().includes(query) ||
+          activity.so_number.toLowerCase().includes(query) ||
+          activity.tool_number.toLowerCase().includes(query) ||
+          (activity.description && activity.description.toLowerCase().includes(query)) ||
+          (activity.location && activity.location.toLowerCase().includes(query))
+        );
+      } else {
+        return (
+          (activity.user && activity.user.toLowerCase().includes(query)) ||
+          activity.part_number.toLowerCase().includes(query) ||
+          activity.so_number.toLowerCase().includes(query) ||
+          activity.issue_type.toLowerCase().includes(query) ||
+          (activity.description && activity.description.toLowerCase().includes(query))
+        );
+      }
+    });
+  }
+
+  get groupedActivities(): GroupedActivities {
+    const groups: GroupedActivities = {};
+
+    for (const activity of this.filteredActivities) {
+      const timestamp = activity.type === 'pick' ? activity.picked_at : activity.timestamp;
+      const date = new Date(timestamp).toISOString().split('T')[0];
       if (!groups[date]) {
         groups[date] = [];
       }
-      groups[date].push(pick);
+      groups[date].push(activity);
     }
 
     return groups;
   }
 
   get groupedDates(): string[] {
-    return Object.keys(this.groupedPicks).sort((a, b) => b.localeCompare(a));
+    return Object.keys(this.groupedActivities).sort((a, b) => b.localeCompare(a));
   }
 
-  get summaryStats(): { totalQty: number; uniqueParts: number; uniqueUsers: number; uniqueOrders: number } {
-    const totalQty = this.filteredPicks.reduce((sum, p) => sum + p.qty_picked, 0);
-    const uniqueParts = new Set(this.filteredPicks.map(p => p.part_number)).size;
-    const uniqueUsers = new Set(this.filteredPicks.filter(p => p.picked_by).map(p => p.picked_by)).size;
-    const uniqueOrders = new Set(this.filteredPicks.map(p => p.so_number)).size;
-    return { totalQty, uniqueParts, uniqueUsers, uniqueOrders };
+  get summaryStats(): { totalQty: number; uniqueParts: number; uniqueUsers: number; pickCount: number; issueCount: number } {
+    const picksOnly = this.filteredActivities.filter((a): a is PickRecord => a.type === 'pick');
+    const issuesOnly = this.filteredActivities.filter((a): a is IssueRecord => a.type !== 'pick');
+
+    const totalQty = picksOnly.reduce((sum, p) => sum + p.qty_picked, 0);
+    const uniqueParts = new Set(picksOnly.map(p => p.part_number)).size;
+    const users = [
+      ...picksOnly.filter(p => p.picked_by).map(p => p.picked_by),
+      ...issuesOnly.filter(i => i.user).map(i => i.user)
+    ];
+    const uniqueUsers = new Set(users).size;
+
+    return { totalQty, uniqueParts, uniqueUsers, pickCount: picksOnly.length, issueCount: issuesOnly.length };
   }
 
   get totalPages(): number {
-    return Math.ceil(this.totalCount / PAGE_SIZE) || 1;
+    return Math.ceil(this.totalPickCount / PAGE_SIZE) || 1;
   }
 
   applyPreset(preset: DatePreset): void {
@@ -437,12 +528,16 @@ export class PickHistoryComponent implements OnInit {
     this.endDate = this.formatDateTimeLocal(end);
   }
 
-  async fetchPicks(): Promise<void> {
+  async fetchData(): Promise<void> {
     try {
       this.loading = true;
       this.hasSearched = true;
 
-      const { data, error, count } = await this.supabase.from('picks')
+      const startISO = new Date(this.startDate).toISOString();
+      const endISO = new Date(this.endDate).toISOString();
+
+      // Fetch picks
+      const { data: picksData, error: picksError, count: picksCount } = await this.supabase.from('picks')
         .select(`
           id,
           qty_picked,
@@ -462,20 +557,19 @@ export class PickHistoryComponent implements OnInit {
             tool_number
           )
         `, { count: 'exact' })
-        .gte('picked_at', new Date(this.startDate).toISOString())
-        .lte('picked_at', new Date(this.endDate).toISOString())
+        .gte('picked_at', startISO)
+        .lte('picked_at', endISO)
         .order('picked_at', { ascending: false })
         .range(this.page * PAGE_SIZE, (this.page + 1) * PAGE_SIZE - 1);
 
-      if (error) {
-        console.error('Error fetching picks:', error);
-        this.picks = [];
-        return;
+      if (picksError) {
+        console.error('Error fetching picks:', picksError);
       }
 
-      // Transform the data
-      this.picks = (data || []).map((pick: any) => ({
+      // Transform picks
+      this.picks = (picksData || []).map((pick: any) => ({
         id: pick.id,
+        type: 'pick' as const,
         qty_picked: pick.qty_picked,
         picked_by: pick.picked_by,
         picked_at: pick.picked_at,
@@ -488,11 +582,78 @@ export class PickHistoryComponent implements OnInit {
         order_id: pick.line_items.order_id,
       }));
 
-      this.totalCount = count || 0;
-      this.hasMore = (data?.length || 0) === PAGE_SIZE;
+      this.totalPickCount = picksCount || 0;
+      this.hasMore = (picksData?.length || 0) === PAGE_SIZE;
+
+      // Fetch issues (only on first page)
+      if (this.page === 0) {
+        const { data: issuesData, error: issuesError } = await this.supabase.from('issues')
+          .select(`
+            id,
+            issue_type,
+            description,
+            reported_by,
+            status,
+            created_at,
+            resolved_at,
+            resolved_by,
+            line_items!inner (
+              part_number,
+              order_id,
+              orders!inner (
+                so_number
+              )
+            )
+          `);
+
+        if (issuesError) {
+          console.error('Error fetching issues:', issuesError);
+        }
+
+        const transformedIssues: IssueRecord[] = [];
+
+        for (const issue of (issuesData || []) as any[]) {
+          // Issue created event
+          const createdAt = new Date(issue.created_at);
+          if (createdAt >= new Date(this.startDate) && createdAt <= new Date(this.endDate)) {
+            transformedIssues.push({
+              id: `issue-created-${issue.id}`,
+              type: 'issue_created',
+              issue_type: issue.issue_type,
+              description: issue.description,
+              user: issue.reported_by,
+              timestamp: issue.created_at,
+              part_number: issue.line_items.part_number,
+              so_number: issue.line_items.orders.so_number,
+              order_id: issue.line_items.order_id,
+            });
+          }
+
+          // Issue resolved event
+          if (issue.status === 'resolved' && issue.resolved_at) {
+            const resolvedAt = new Date(issue.resolved_at);
+            if (resolvedAt >= new Date(this.startDate) && resolvedAt <= new Date(this.endDate)) {
+              transformedIssues.push({
+                id: `issue-resolved-${issue.id}`,
+                type: 'issue_resolved',
+                issue_type: issue.issue_type,
+                description: issue.description,
+                user: issue.resolved_by,
+                timestamp: issue.resolved_at,
+                part_number: issue.line_items.part_number,
+                so_number: issue.line_items.orders.so_number,
+                order_id: issue.line_items.order_id,
+              });
+            }
+          }
+        }
+
+        this.issues = transformedIssues;
+      }
     } catch (err) {
-      console.error('Error fetching picks:', err);
+      console.error('Error fetching data:', err);
       this.picks = [];
+      this.issues = [];
     } finally {
       this.loading = false;
     }
@@ -501,20 +662,21 @@ export class PickHistoryComponent implements OnInit {
   prevPage(): void {
     if (this.page > 0) {
       this.page--;
-      this.fetchPicks();
+      this.fetchData();
     }
   }
 
   nextPage(): void {
     if (this.hasMore) {
       this.page++;
-      this.fetchPicks();
+      this.fetchData();
     }
   }
 
   exportToExcel(): void {
+    const picksOnly = this.filteredActivities.filter((a): a is PickRecord => a.type === 'pick');
     this.excelService.exportPickHistoryToExcel(
-      this.filteredPicks,
+      picksOnly,
       this.startDate,
       this.endDate
     );
@@ -536,6 +698,59 @@ export class PickHistoryComponent implements OnInit {
       minute: '2-digit',
       hour12: true
     });
+  }
+
+  getActivityUser(activity: ActivityRecord): string {
+    if (activity.type === 'pick') {
+      return activity.picked_by || 'Unknown';
+    }
+    return activity.user || 'Unknown';
+  }
+
+  getActivityTimestamp(activity: ActivityRecord): string {
+    if (activity.type === 'pick') {
+      return activity.picked_at;
+    }
+    return activity.timestamp;
+  }
+
+  getActivityIconClass(type: ActivityRecord['type']): string {
+    switch (type) {
+      case 'pick':
+        return 'bi bi-check-circle-fill text-success';
+      case 'issue_created':
+        return 'bi bi-exclamation-triangle-fill text-warning';
+      case 'issue_resolved':
+        return 'bi bi-check-circle-fill text-primary';
+      default:
+        return 'bi bi-box text-muted';
+    }
+  }
+
+  getActivityBadgeClass(type: ActivityRecord['type']): string {
+    switch (type) {
+      case 'pick':
+        return 'badge bg-success-subtle text-success border border-success-subtle';
+      case 'issue_created':
+        return 'badge bg-warning-subtle text-warning border border-warning-subtle';
+      case 'issue_resolved':
+        return 'badge bg-primary-subtle text-primary border border-primary-subtle';
+      default:
+        return 'badge bg-secondary-subtle text-secondary';
+    }
+  }
+
+  getActivityBadgeText(type: ActivityRecord['type']): string {
+    switch (type) {
+      case 'pick':
+        return 'Pick';
+      case 'issue_created':
+        return 'Issue';
+      case 'issue_resolved':
+        return 'Resolved';
+      default:
+        return 'Unknown';
+    }
   }
 
   // Date helper functions
@@ -563,7 +778,7 @@ export class PickHistoryComponent implements OnInit {
   private startOfWeek(date: Date): Date {
     const d = new Date(date);
     const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust for Monday start
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
     d.setDate(diff);
     d.setHours(0, 0, 0, 0);
     return d;
@@ -572,7 +787,7 @@ export class PickHistoryComponent implements OnInit {
   private endOfWeek(date: Date): Date {
     const d = new Date(date);
     const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? 0 : 7); // Adjust for Sunday end
+    const diff = d.getDate() - day + (day === 0 ? 0 : 7);
     d.setDate(diff);
     d.setHours(23, 59, 59, 999);
     return d;
