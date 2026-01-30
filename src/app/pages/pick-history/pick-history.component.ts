@@ -526,6 +526,8 @@ export class PickHistoryComponent implements OnInit {
     const { start, end } = preset.getValue();
     this.startDate = this.formatDateTimeLocal(start);
     this.endDate = this.formatDateTimeLocal(end);
+    this.page = 0;
+    this.fetchData();
   }
 
   async fetchData(): Promise<void> {

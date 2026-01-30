@@ -33,10 +33,19 @@ import { ItemToOrder } from '../../models';
       <!-- Filters -->
       <div class="card mb-4" *ngIf="items.length > 0">
         <div class="card-body">
-          <div class="input-group">
-            <span class="input-group-text"><i class="bi bi-search"></i></span>
-            <input type="text" class="form-control" placeholder="Search by part number or description..."
-                   [(ngModel)]="searchQuery">
+          <div class="d-flex flex-column flex-sm-row gap-3 align-items-sm-center">
+            <div class="input-group flex-grow-1">
+              <span class="input-group-text"><i class="bi bi-search"></i></span>
+              <input type="text" class="form-control" placeholder="Search by part number or description..."
+                     [(ngModel)]="searchQuery">
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="hideAlreadyOrdered"
+                     [checked]="hideAlreadyOrdered" (change)="toggleHideAlreadyOrdered()">
+              <label class="form-check-label text-nowrap" for="hideAlreadyOrdered">
+                Hide already ordered
+              </label>
+            </div>
           </div>
         </div>
       </div>
@@ -64,6 +73,7 @@ import { ItemToOrder } from '../../models';
                 <th>Description</th>
                 <th>Location</th>
                 <th class="text-center">Available</th>
+                <th class="text-center">On Order</th>
                 <th class="text-center">Total Needed</th>
                 <th class="text-center">Remaining</th>
                 <th>Orders</th>
@@ -76,6 +86,12 @@ import { ItemToOrder } from '../../models';
                 <td>{{ item.location || '-' }}</td>
                 <td class="text-center">
                   <span class="badge bg-danger">{{ item.qty_available }}</span>
+                </td>
+                <td class="text-center">
+                  <span *ngIf="item.qty_on_order && item.qty_on_order > 0" class="badge bg-info">
+                    {{ item.qty_on_order }}
+                  </span>
+                  <span *ngIf="!item.qty_on_order || item.qty_on_order <= 0" class="text-muted">-</span>
                 </td>
                 <td class="text-center">{{ item.total_needed }}</td>
                 <td class="text-center">
@@ -108,6 +124,7 @@ export class ItemsToOrderComponent implements OnInit, OnDestroy {
   items: ItemToOrder[] = [];
   loading = true;
   searchQuery = '';
+  hideAlreadyOrdered = false;
 
   private subscriptions: Subscription[] = [];
 
@@ -115,7 +132,11 @@ export class ItemsToOrderComponent implements OnInit, OnDestroy {
     private itemsToOrderService: ItemsToOrderService,
     private excelService: ExcelService,
     public utils: UtilsService
-  ) {}
+  ) {
+    // Load hide already ordered preference from localStorage
+    const saved = localStorage.getItem('items-to-order-hide-already-ordered');
+    this.hideAlreadyOrdered = saved === 'true';
+  }
 
   ngOnInit(): void {
     this.subscriptions.push(
@@ -133,12 +154,24 @@ export class ItemsToOrderComponent implements OnInit, OnDestroy {
   }
 
   get filteredItems(): ItemToOrder[] {
-    if (!this.searchQuery) return this.items;
+    return this.items.filter(item => {
+      // Search filter
+      const matchesSearch = !this.searchQuery ||
+        item.part_number.toLowerCase().includes(this.searchQuery.toLowerCase()) ||
+        item.description?.toLowerCase().includes(this.searchQuery.toLowerCase());
 
-    return this.items.filter(item =>
-      item.part_number.toLowerCase().includes(this.searchQuery.toLowerCase()) ||
-      item.description?.toLowerCase().includes(this.searchQuery.toLowerCase())
-    );
+      // Hide items that have already been ordered (qty_on_order > 0)
+      const matchesAlreadyOrdered = !this.hideAlreadyOrdered ||
+        !item.qty_on_order ||
+        item.qty_on_order <= 0;
+
+      return matchesSearch && matchesAlreadyOrdered;
+    });
+  }
+
+  toggleHideAlreadyOrdered(): void {
+    this.hideAlreadyOrdered = !this.hideAlreadyOrdered;
+    localStorage.setItem('items-to-order-hide-already-ordered', String(this.hideAlreadyOrdered));
   }
 
   handleExport(): void {

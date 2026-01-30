@@ -127,8 +127,23 @@ export class PicksService implements OnDestroy {
     qtyPicked: number,
     pickedBy?: string,
     notes?: string
-  ): Promise<Pick | null> {
+  ): Promise<(Pick & { overPickWarning?: string }) | null> {
     try {
+      // Check current state before picking to detect concurrent picks
+      const { data: lineItem } = await this.supabase.from('line_items')
+        .select('total_qty_needed')
+        .eq('id', lineItemId)
+        .single();
+
+      const { data: existingPicks } = await this.supabase.from('picks')
+        .select('qty_picked')
+        .eq('line_item_id', lineItemId);
+
+      const currentTotal = (existingPicks || []).reduce((sum: number, p: any) => sum + p.qty_picked, 0);
+      const newTotal = currentTotal + qtyPicked;
+      const needed = lineItem?.total_qty_needed || 0;
+
+      // Record the pick
       const { data, error } = await this.supabase.from('picks')
         .insert({
           line_item_id: lineItemId,
@@ -141,6 +156,15 @@ export class PicksService implements OnDestroy {
         .single();
 
       if (error) throw error;
+
+      // Add warning if this pick causes over-picking
+      if (newTotal > needed) {
+        return {
+          ...data,
+          overPickWarning: `Over-picked! ${newTotal} picked but only ${needed} needed. Someone may have picked this item at the same time.`,
+        };
+      }
+
       return data;
     } catch (err) {
       this.errorSubject.next(err instanceof Error ? err.message : 'Failed to record pick');

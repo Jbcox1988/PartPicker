@@ -81,6 +81,16 @@ interface PickHistoryItem {
         <strong>{{ utils.getDueDateStatus(order.due_date).label }}</strong> - {{ utils.formatDate(order.due_date) }}
       </div>
 
+      <!-- Over-Pick Warning Alert -->
+      <div class="alert alert-danger d-flex align-items-center mb-3" *ngIf="overPickWarning">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i>
+        <div class="flex-grow-1">
+          <strong>Concurrent Pick Detected</strong>
+          <p class="mb-0 small">{{ overPickWarning }}</p>
+        </div>
+        <button type="button" class="btn-close" (click)="overPickWarning = null" aria-label="Close"></button>
+      </div>
+
       <!-- Header -->
       <div class="mb-3">
         <a routerLink="/orders" class="text-decoration-none small">
@@ -849,6 +859,7 @@ export class OrderDetailComponent implements OnInit, OnDestroy {
   isSubmitting: string | null = null;
   keyboardSelectedIndex = -1;
   distributeItem: LineItemWithPicks | null = null;
+  overPickWarning: string | null = null;
 
   editForm = {
     so_number: '',
@@ -1123,14 +1134,23 @@ export class OrderDetailComponent implements OnInit, OnDestroy {
 
     this.isSubmitting = 'batch';
     const userName = this.settingsService.getUserName();
+    let hasWarnings = false;
 
     for (const item of itemsInLocation) {
       for (const tool of this.tools) {
         const remaining = this.getRemainingForTool(item, tool);
         if (remaining > 0) {
-          await this.picksService.recordPick(item.id, tool.id, remaining, userName);
+          const result = await this.picksService.recordPick(item.id, tool.id, remaining, userName);
+          if (result && 'overPickWarning' in result && result.overPickWarning) {
+            hasWarnings = true;
+          }
         }
       }
+    }
+
+    if (hasWarnings) {
+      this.overPickWarning = 'Some items may have been over-picked. Another user may have picked items at the same time. Please review the quantities.';
+      setTimeout(() => this.overPickWarning = null, 8000);
     }
 
     this.isSubmitting = null;
@@ -1276,7 +1296,15 @@ export class OrderDetailComponent implements OnInit, OnDestroy {
 
     this.isSubmitting = item.id;
     const userName = this.settingsService.getUserName();
-    await this.picksService.recordPick(item.id, tool.id, remaining, userName);
+    const result = await this.picksService.recordPick(item.id, tool.id, remaining, userName);
+
+    // Check for over-pick warning (concurrent pick detection)
+    if (result && 'overPickWarning' in result && result.overPickWarning) {
+      this.overPickWarning = result.overPickWarning;
+      // Auto-dismiss after 8 seconds
+      setTimeout(() => this.overPickWarning = null, 8000);
+    }
+
     this.isSubmitting = null;
   }
 
@@ -1287,12 +1315,21 @@ export class OrderDetailComponent implements OnInit, OnDestroy {
   async handlePickAllTools(item: LineItemWithPicks): Promise<void> {
     this.isSubmitting = item.id;
     const userName = this.settingsService.getUserName();
+    let hasWarnings = false;
 
     for (const tool of this.tools) {
       const remaining = this.getRemainingForTool(item, tool);
       if (remaining > 0) {
-        await this.picksService.recordPick(item.id, tool.id, remaining, userName);
+        const result = await this.picksService.recordPick(item.id, tool.id, remaining, userName);
+        if (result && 'overPickWarning' in result && result.overPickWarning) {
+          hasWarnings = true;
+        }
       }
+    }
+
+    if (hasWarnings) {
+      this.overPickWarning = 'Some items may have been over-picked. Another user may have picked items at the same time. Please review the quantities.';
+      setTimeout(() => this.overPickWarning = null, 8000);
     }
 
     this.isSubmitting = null;
@@ -1352,13 +1389,18 @@ export class OrderDetailComponent implements OnInit, OnDestroy {
 
     this.isSubmitting = this.partialPickItem.id;
     const userName = this.settingsService.getUserName();
-    await this.picksService.recordPick(
+    const result = await this.picksService.recordPick(
       this.partialPickItem.id,
       this.partialPickToolId,
       qtyToPick,
       userName,
       this.partialPickNote || undefined
     );
+
+    if (result && 'overPickWarning' in result && result.overPickWarning) {
+      this.overPickWarning = result.overPickWarning;
+      setTimeout(() => this.overPickWarning = null, 8000);
+    }
 
     this.isSubmitting = null;
     this.showPartialPickModal = false;
@@ -1521,16 +1563,25 @@ export class OrderDetailComponent implements OnInit, OnDestroy {
 
     this.isSubmitting = this.distributeItem.id;
     const userName = this.settingsService.getUserName();
+    let hasWarnings = false;
 
     for (const alloc of allocations) {
       if (alloc.qty > 0) {
-        await this.picksService.recordPick(
+        const result = await this.picksService.recordPick(
           this.distributeItem.id,
           alloc.toolId,
           alloc.qty,
           userName
         );
+        if (result && 'overPickWarning' in result && result.overPickWarning) {
+          hasWarnings = true;
+        }
       }
+    }
+
+    if (hasWarnings) {
+      this.overPickWarning = 'Some items may have been over-picked. Another user may have picked items at the same time. Please review the quantities.';
+      setTimeout(() => this.overPickWarning = null, 8000);
     }
 
     this.isSubmitting = null;
