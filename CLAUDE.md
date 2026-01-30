@@ -1,5 +1,7 @@
 # Tool Pick List Tracker
 
+> **IMPORTANT: This is the PRIMARY implementation.** There is an Angular version (`../AngularBootstrap/`) that should be kept feature-identical to this React app. Any new features, bug fixes, or changes made here should be mirrored to the Angular version.
+
 A warehouse tool picking application built with React, TypeScript, and Supabase.
 
 ## Hosting & Infrastructure
@@ -176,6 +178,15 @@ UI components use shadcn/ui patterns:
 - **useKeyboardNavigation**: Keyboard navigation for lists (↑/↓ or j/k, Enter/Space, Escape)
 
 ## Key Page Logic
+
+### Pick History Page (`/pick-history`)
+
+Filter and view all picks within a specific date/time range. Features:
+- **Quick Presets**: Today, Yesterday, This Week, Last 7 Days, This Month, Last 30 Days
+- **Custom Range**: Datetime pickers for precise start/end filtering
+- **Search Within Results**: Filter by picker name, part number, SO number, location
+- **Summary Stats**: Total picks, total quantity, unique parts, unique pickers
+- **Export to Excel**: Download filtered results as an Excel file
 
 ### Items to Order Page (`/items-to-order`)
 
