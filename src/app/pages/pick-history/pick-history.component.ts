@@ -132,10 +132,11 @@ const PAGE_SIZE = 50;
             <button
               *ngIf="hasSearched && filteredActivities.length > 0"
               class="btn btn-outline-secondary"
+              [disabled]="exporting"
               (click)="exportToExcel()"
             >
-              <i class="bi bi-download me-2"></i>
-              Export Picks to Excel
+              <i class="bi bi-download me-2" [class.spin]="exporting"></i>
+              {{ exporting ? 'Exporting...' : 'Export Picks to Excel' }}
             </button>
           </div>
         </div>
@@ -363,6 +364,7 @@ export class PickHistoryComponent implements OnInit {
   allUniqueUsers = 0;
   totalIssueCount = 0;
   hasSearched = false;
+  exporting = false;
 
   // Activity type filters
   showPicks = true;
@@ -698,13 +700,73 @@ export class PickHistoryComponent implements OnInit {
     }
   }
 
-  exportToExcel(): void {
-    const picksOnly = this.filteredActivities.filter((a): a is PickRecord => a.type === 'pick');
-    this.excelService.exportPickHistoryToExcel(
-      picksOnly,
-      this.startDate,
-      this.endDate
-    );
+  async exportToExcel(): Promise<void> {
+    try {
+      this.exporting = true;
+
+      const startISO = new Date(this.startDate).toISOString();
+      const endISO = new Date(this.endDate).toISOString();
+
+      // Fetch ALL picks in date range (no pagination limit)
+      const { data: allPicksData, error } = await this.supabase.from('picks')
+        .select(`
+          id,
+          qty_picked,
+          picked_by,
+          picked_at,
+          notes,
+          line_items!inner (
+            part_number,
+            orders!inner (
+              so_number
+            )
+          ),
+          tools!inner (
+            tool_number
+          )
+        `)
+        .gte('picked_at', startISO)
+        .lte('picked_at', endISO)
+        .order('picked_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching picks for export:', error);
+        return;
+      }
+
+      // Apply search filter if active
+      let filteredData = allPicksData || [];
+      if (this.searchQuery) {
+        const query = this.searchQuery.toLowerCase();
+        filteredData = filteredData.filter((pick: any) =>
+          (pick.picked_by && pick.picked_by.toLowerCase().includes(query)) ||
+          pick.line_items.part_number.toLowerCase().includes(query) ||
+          pick.line_items.orders.so_number.toLowerCase().includes(query) ||
+          pick.tools.tool_number.toLowerCase().includes(query)
+        );
+      }
+
+      // Transform to export format
+      const exportData = filteredData.map((pick: any) => ({
+        picked_at: pick.picked_at,
+        picked_by: pick.picked_by,
+        qty_picked: pick.qty_picked,
+        notes: pick.notes,
+        part_number: pick.line_items.part_number,
+        tool_number: pick.tools.tool_number,
+        so_number: pick.line_items.orders.so_number,
+      }));
+
+      this.excelService.exportPickHistoryToExcel(
+        exportData,
+        this.startDate,
+        this.endDate
+      );
+    } catch (err) {
+      console.error('Export failed:', err);
+    } finally {
+      this.exporting = false;
+    }
   }
 
   formatDateHeader(date: string): string {
