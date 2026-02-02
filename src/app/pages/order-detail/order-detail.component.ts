@@ -237,8 +237,27 @@ interface PickHistoryItem {
           <span class="badge bg-secondary">{{ lineItems.length }} parts</span>
           <span class="badge bg-light text-dark border">{{ tools.length }} tool(s)</span>
 
+          <!-- Part Search Input -->
+          <div class="input-group" style="width: 180px;">
+            <span class="input-group-text py-1 px-2"><i class="bi bi-search small"></i></span>
+            <input
+              type="text"
+              class="form-control form-control-sm"
+              placeholder="Search parts..."
+              [(ngModel)]="partSearchQuery"
+            >
+            <button
+              *ngIf="partSearchQuery"
+              class="btn btn-outline-secondary btn-sm"
+              type="button"
+              (click)="partSearchQuery = ''"
+            >
+              <i class="bi bi-x"></i>
+            </button>
+          </div>
+
           <!-- Sort Dropdown -->
-          <div class="dropdown ms-2">
+          <div class="dropdown">
             <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
               <i class="bi bi-sort-down me-1"></i>
               {{ sortMode === 'part_number' ? 'Part Number' : 'Location' }}
@@ -257,6 +276,11 @@ interface PickHistoryItem {
               <i class="bi bi-plus me-1"></i> Add Part
             </button>
           </div>
+        </div>
+
+        <!-- Search results indicator -->
+        <div *ngIf="partSearchQuery" class="small text-muted mb-2">
+          {{ sortedLineItems.length }} of {{ lineItemsWithPicks.length }} parts match "{{ partSearchQuery }}"
         </div>
 
         <!-- Tools Header Bar -->
@@ -857,6 +881,7 @@ export class OrderDetailComponent implements OnInit, OnDestroy {
   sortMode: SortMode = 'part_number';
   expandedItems: Set<string> = new Set();
   isSubmitting: string | null = null;
+  partSearchQuery: string = '';
   keyboardSelectedIndex = -1;
   distributeItem: LineItemWithPicks | null = null;
   overPickWarning: string | null = null;
@@ -1095,7 +1120,17 @@ export class OrderDetailComponent implements OnInit, OnDestroy {
   }
 
   get sortedLineItems(): LineItemWithPicks[] {
-    const items = [...this.lineItemsWithPicks];
+    // First filter by search query
+    let items = [...this.lineItemsWithPicks];
+
+    if (this.partSearchQuery.trim()) {
+      const query = this.partSearchQuery.toLowerCase();
+      items = items.filter(item =>
+        item.part_number.toLowerCase().includes(query) ||
+        (item.description?.toLowerCase().includes(query)) ||
+        (item.location?.toLowerCase().includes(query))
+      );
+    }
 
     if (this.sortMode === 'location') {
       items.sort((a, b) => {

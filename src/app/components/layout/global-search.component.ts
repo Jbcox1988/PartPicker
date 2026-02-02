@@ -47,12 +47,10 @@ import { GlobalSearchService, SearchResult } from '../../services/global-search.
           </div>
 
           <div *ngIf="!loading && results.length > 0" class="list-group list-group-flush">
-            <a
+            <div
               *ngFor="let result of results; let i = index"
-              [routerLink]="['/orders', result.order_id]"
-              class="list-group-item list-group-item-action"
+              class="list-group-item"
               [class.active]="i === selectedIndex"
-              (click)="selectResult(result)"
               (mouseenter)="selectedIndex = i"
             >
               <div class="d-flex justify-content-between align-items-start">
@@ -70,7 +68,15 @@ import { GlobalSearchService, SearchResult } from '../../services/global-search.
                   <i class="bi bi-box me-1"></i>{{ result.total_picked }}/{{ result.total_qty_needed }} picked
                 </span>
               </div>
-            </a>
+              <div class="d-flex gap-2 mt-2">
+                <button class="btn btn-sm btn-primary flex-grow-1 flex-sm-grow-0" (click)="goToOrder(result)">
+                  Order
+                </button>
+                <button class="btn btn-sm btn-outline-secondary flex-grow-1 flex-sm-grow-0" (click)="viewInParts(result)">
+                  Parts
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -112,11 +118,9 @@ import { GlobalSearchService, SearchResult } from '../../services/global-search.
           </div>
 
           <div *ngIf="!loading && results.length > 0" class="list-group">
-            <a
+            <div
               *ngFor="let result of results"
-              [routerLink]="['/orders', result.order_id]"
-              class="list-group-item list-group-item-action"
-              (click)="selectResult(result)"
+              class="list-group-item"
             >
               <div class="d-flex justify-content-between align-items-start">
                 <div>
@@ -133,7 +137,15 @@ import { GlobalSearchService, SearchResult } from '../../services/global-search.
                   <i class="bi bi-box me-1"></i>{{ result.total_picked }}/{{ result.total_qty_needed }}
                 </span>
               </div>
-            </a>
+              <div class="d-flex gap-2 mt-2">
+                <button class="btn btn-sm btn-primary flex-grow-1" (click)="goToOrder(result)">
+                  Order
+                </button>
+                <button class="btn btn-sm btn-outline-secondary flex-grow-1" (click)="viewInParts(result)">
+                  Parts
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -257,7 +269,19 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
   }
 
   selectResult(result: SearchResult): void {
+    this.goToOrder(result);
+  }
+
+  goToOrder(result: SearchResult): void {
     this.router.navigate(['/orders', result.order_id]);
+    this.showResults = false;
+    this.showMobileSearch = false;
+    this.searchQuery = '';
+    this.results = [];
+  }
+
+  viewInParts(result: SearchResult): void {
+    this.router.navigate(['/parts'], { queryParams: { search: result.part_number } });
     this.showResults = false;
     this.showMobileSearch = false;
     this.searchQuery = '';

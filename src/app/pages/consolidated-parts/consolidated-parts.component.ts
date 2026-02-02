@@ -1,6 +1,6 @@
 import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterModule } from '@angular/router';
+import { RouterModule, ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 import { ConsolidatedPartsService } from '../../services/consolidated-parts.service';
@@ -235,10 +235,20 @@ export class ConsolidatedPartsComponent implements OnInit, OnDestroy {
     private partsService: ConsolidatedPartsService,
     private picksService: PicksService,
     private settingsService: SettingsService,
-    public utils: UtilsService
+    public utils: UtilsService,
+    private route: ActivatedRoute,
+    private router: Router
   ) {}
 
   ngOnInit(): void {
+    // Read URL search parameter on init
+    const urlSearch = this.route.snapshot.queryParamMap.get('search');
+    if (urlSearch) {
+      this.searchQuery = urlSearch;
+      // Clear URL param to keep URL clean
+      this.router.navigate([], { queryParams: {}, replaceUrl: true });
+    }
+
     this.subscriptions.push(
       this.partsService.parts$.subscribe(parts => {
         this.parts = parts;
