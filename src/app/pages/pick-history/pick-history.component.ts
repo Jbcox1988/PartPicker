@@ -594,6 +594,7 @@ export class PickHistoryComponent implements OnInit {
       this.hasMore = (picksData?.length || 0) === PAGE_SIZE;
 
       // Fetch ALL picks for accurate stats (separate lightweight query)
+      // Supabase defaults to 1000 rows - we need all picks for accurate stats
       const { data: allPicksData } = await this.supabase.from('picks')
         .select(`
           qty_picked,
@@ -603,7 +604,8 @@ export class PickHistoryComponent implements OnInit {
           )
         `)
         .gte('picked_at', startISO)
-        .lte('picked_at', endISO);
+        .lte('picked_at', endISO)
+        .limit(50000);
 
       if (allPicksData) {
         this.totalQtyPicked = allPicksData.reduce((sum: number, p: any) => sum + (p.qty_picked || 0), 0);

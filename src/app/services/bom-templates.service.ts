@@ -59,7 +59,8 @@ export class BomTemplatesService implements OnDestroy {
     try {
       const [templateRes, itemsRes] = await Promise.all([
         this.supabase.from('bom_templates').select('*').eq('id', templateId).single(),
-        this.supabase.from('bom_template_items').select('*').eq('template_id', templateId),
+        // Supabase defaults to 1000 rows - need higher limit for large templates
+        this.supabase.from('bom_template_items').select('*').eq('template_id', templateId).limit(10000),
       ]);
 
       if (templateRes.error) throw templateRes.error;
