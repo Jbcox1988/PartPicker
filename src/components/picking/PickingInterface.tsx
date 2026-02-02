@@ -215,6 +215,8 @@ export function PickingInterface({
   const [isSubmitting, setIsSubmitting] = useState<string | null>(null);
   const [issueReportItem, setIssueReportItem] = useState<LineItem | null>(null);
   const [distributeItem, setDistributeItem] = useState<LineItem | null>(null);
+  const [scrollToItemId, setScrollToItemId] = useState<string | null>(null);
+  const itemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [swipeStates, setSwipeStates] = useState<Map<string, number>>(new Map());
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [deleteConfirmPick, setDeleteConfirmPick] = useState<Pick | null>(null);
@@ -319,6 +321,21 @@ export function PickingInterface({
     }
   }, [filteredLineItems, sortMode, hideCompleted, toolPicks]);
 
+  // Scroll to item after data refresh (e.g., after distribute dialog save)
+  useEffect(() => {
+    if (scrollToItemId) {
+      const timeoutId = setTimeout(() => {
+        const element = itemRefs.current.get(scrollToItemId);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        // If element not found (hidden by "Hide completed" filter), do nothing gracefully
+        setScrollToItemId(null);
+      }, 100);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [scrollToItemId, sortedItems]);
+
   const handleQuickPick = useCallback(async (item: LineItem) => {
     const pickedForTool = toolPicks.get(item.id) || 0;
     const remaining = item.qty_per_unit - pickedForTool;
@@ -348,6 +365,9 @@ export function PickingInterface({
         return next;
       });
     }
+
+    // Scroll back to this item after data refresh
+    setScrollToItemId(item.id);
 
     setIsSubmitting(null);
   }, [toolPicks, tool.id, onRecordPick, getUserName, pendingPicks]);
@@ -473,11 +493,20 @@ export function PickingInterface({
   // Handle save from distribute dialog
   const handleDistributeSave = useCallback(async (newAllocations: Map<string, number>): Promise<boolean> => {
     if (!distributeItem || !onBatchUpdateAllocations) return false;
-    return await onBatchUpdateAllocations(
+
+    const itemIdToScrollTo = distributeItem.id;  // Track before saving
+
+    const success = await onBatchUpdateAllocations(
       distributeItem.id,
       newAllocations,
       getUserName()
     );
+
+    if (success) {
+      setScrollToItemId(itemIdToScrollTo);  // Trigger scroll after refresh
+    }
+
+    return success;
   }, [distributeItem, onBatchUpdateAllocations, getUserName]);
 
   // Open undo confirmation dialog for a specific tool
@@ -743,7 +772,7 @@ export function PickingInterface({
     const isKeyboardSelected = keyboardSelectedId === item.id;
 
     return (
-      <div key={item.id} className="hidden md:block space-y-0">
+      <div className="hidden md:block space-y-0">
         {/* Main Row */}
         <div
           className={cn(
@@ -1043,7 +1072,6 @@ export function PickingInterface({
 
     return (
       <div
-        key={`mobile-${item.id}`}
         className="relative overflow-hidden rounded-xl md:hidden"
       >
         {/* Swipe indicator background */}
@@ -1288,10 +1316,16 @@ export function PickingInterface({
 
   // Combined render function for both desktop and mobile
   const renderLineItem = (item: LineItem) => (
-    <>
+    <div
+      key={item.id}
+      ref={(el) => {
+        if (el) itemRefs.current.set(item.id, el);
+        else itemRefs.current.delete(item.id);
+      }}
+    >
       {renderDesktopLineItem(item)}
       {renderMobileLineItem(item)}
-    </>
+    </div>
   );
 
   return (
