@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Package, ChevronDown, ChevronRight, MapPin, ArrowUpDown, X, Download, ClipboardList, CheckCircle2, Clock, Layers, List, Copy, FileSpreadsheet, Truck } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -30,9 +30,10 @@ interface PartCardProps {
   isExpanded: boolean;
   onToggleExpand: (partNumber: string) => void;
   onPickClick: (part: ConsolidatedPart, e: React.MouseEvent) => void;
+  refCallback?: (el: HTMLDivElement | null) => void;
 }
 
-function PartCard({ part, isExpanded, onToggleExpand, onPickClick }: PartCardProps) {
+function PartCard({ part, isExpanded, onToggleExpand, onPickClick, refCallback }: PartCardProps) {
   const isComplete = part.remaining === 0;
   const progressPercent =
     part.total_needed > 0
@@ -40,7 +41,7 @@ function PartCard({ part, isExpanded, onToggleExpand, onPickClick }: PartCardPro
       : 0;
 
   return (
-    <Card className={cn(isComplete && 'bg-green-50 border-green-200')}>
+    <Card ref={refCallback} className={cn(isComplete && 'bg-green-50 border-green-200')}>
       <CardContent className="pt-4 pb-4">
         {/* Mobile Layout */}
         <div
@@ -293,12 +294,37 @@ export function ConsolidatedParts() {
   // Multi-order pick dialog state
   const [selectedPart, setSelectedPart] = useState<ConsolidatedPart | null>(null);
   const [pickDialogOpen, setPickDialogOpen] = useState(false);
+  const [scrollToPartNumber, setScrollToPartNumber] = useState<string | null>(null);
+  const partRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   const handlePickClick = (part: ConsolidatedPart, e: React.MouseEvent) => {
     e.stopPropagation();
     setSelectedPart(part);
     setPickDialogOpen(true);
   };
+
+  // Handle dialog close - track part for scroll if it was a save
+  const handleDialogOpenChange = (open: boolean) => {
+    if (!open && selectedPart) {
+      // Dialog is closing - scroll to the part after data refresh
+      setScrollToPartNumber(selectedPart.part_number);
+    }
+    setPickDialogOpen(open);
+  };
+
+  // Scroll to part after data refresh
+  useEffect(() => {
+    if (scrollToPartNumber) {
+      const timeoutId = setTimeout(() => {
+        const element = partRefs.current.get(scrollToPartNumber);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        setScrollToPartNumber(null);
+      }, 100);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [scrollToPartNumber, parts]);
 
   // Persist sort preference
   useEffect(() => {
@@ -655,6 +681,10 @@ export function ConsolidatedParts() {
                   isExpanded={expandedParts.has(part.part_number)}
                   onToggleExpand={toggleExpanded}
                   onPickClick={handlePickClick}
+                  refCallback={(el) => {
+                    if (el) partRefs.current.set(part.part_number, el);
+                    else partRefs.current.delete(part.part_number);
+                  }}
                 />
               ))}
             </div>
@@ -670,6 +700,10 @@ export function ConsolidatedParts() {
               isExpanded={expandedParts.has(part.part_number)}
               onToggleExpand={toggleExpanded}
               onPickClick={handlePickClick}
+              refCallback={(el) => {
+                if (el) partRefs.current.set(part.part_number, el);
+                else partRefs.current.delete(part.part_number);
+              }}
             />
           ))}
         </div>
@@ -678,7 +712,7 @@ export function ConsolidatedParts() {
       {/* Multi-Order Pick Dialog */}
       <MultiOrderPickDialog
         open={pickDialogOpen}
-        onOpenChange={setPickDialogOpen}
+        onOpenChange={handleDialogOpenChange}
         part={selectedPart}
       />
     </div>
