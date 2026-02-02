@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { supabase } from '@/lib/supabase';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { exportPickHistoryToExcel, type PickHistoryItem } from '@/lib/excelExport';
 import { format, startOfDay, endOfDay, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 import {
@@ -89,7 +90,10 @@ export function PickHistory() {
   const [endDate, setEndDate] = useState(() => format(endOfDay(new Date()), "yyyy-MM-dd'T'HH:mm"));
   const [hasSearched, setHasSearched] = useState(false);
 
-  const fetchData = useCallback(async () => {
+  // Debounce search query for server-side filtering
+  const debouncedSearch = useDebouncedValue(searchQuery, 300);
+
+  const fetchData = useCallback(async (searchTerm?: string) => {
     try {
       setLoading(true);
       setHasSearched(true);
@@ -97,8 +101,11 @@ export function PickHistory() {
       const startISO = new Date(startDate).toISOString();
       const endISO = new Date(endDate).toISOString();
 
-      // Fetch picks
-      const { data: picksData, error: picksError, count: picksCount } = await supabase
+      // Use the passed searchTerm or fall back to debouncedSearch
+      const activeSearch = searchTerm !== undefined ? searchTerm : debouncedSearch;
+
+      // Fetch picks with server-side search filter
+      let picksQuery = supabase
         .from('picks')
         .select(`
           id,
@@ -120,7 +127,19 @@ export function PickHistory() {
           )
         `, { count: 'exact' })
         .gte('picked_at', startISO)
-        .lte('picked_at', endISO)
+        .lte('picked_at', endISO);
+
+      // Add search filter if there's a search term
+      if (activeSearch) {
+        picksQuery = picksQuery.or(
+          `picked_by.ilike.%${activeSearch}%,` +
+          `line_items.part_number.ilike.%${activeSearch}%,` +
+          `line_items.orders.so_number.ilike.%${activeSearch}%,` +
+          `tools.tool_number.ilike.%${activeSearch}%`
+        );
+      }
+
+      const { data: picksData, error: picksError, count: picksCount } = await picksQuery
         .order('picked_at', { ascending: false })
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
@@ -149,17 +168,36 @@ export function PickHistory() {
       setHasMore((picksData?.length || 0) === PAGE_SIZE);
 
       // Fetch ALL picks for accurate stats (separate lightweight query)
-      const { data: allPicksData } = await supabase
+      let statsQuery = supabase
         .from('picks')
         .select(`
           qty_picked,
           picked_by,
           line_items!inner (
-            part_number
+            part_number,
+            orders!inner (
+              so_number
+            )
+          ),
+          tools!inner (
+            tool_number
           )
         `)
         .gte('picked_at', startISO)
         .lte('picked_at', endISO);
+
+      // Add search filter if there's a search term
+      if (activeSearch) {
+        statsQuery = statsQuery.or(
+          `picked_by.ilike.%${activeSearch}%,` +
+          `line_items.part_number.ilike.%${activeSearch}%,` +
+          `line_items.orders.so_number.ilike.%${activeSearch}%,` +
+          `tools.tool_number.ilike.%${activeSearch}%`
+        );
+      }
+
+      // Supabase defaults to 1000 rows - we need all picks for accurate stats
+      const { data: allPicksData } = await statsQuery.limit(50000);
 
       if (allPicksData) {
         const totalQty = allPicksData.reduce((sum: number, p: any) => sum + (p.qty_picked || 0), 0);
@@ -246,12 +284,20 @@ export function PickHistory() {
     } finally {
       setLoading(false);
     }
-  }, [startDate, endDate, page]);
+  }, [startDate, endDate, page, debouncedSearch]);
 
-  // Reset to page 0 when date range changes
+  // Reset to page 0 when date range or search changes
   useEffect(() => {
     setPage(0);
-  }, [startDate, endDate]);
+  }, [startDate, endDate, debouncedSearch]);
+
+  // Auto-fetch when search changes (after debounce)
+  useEffect(() => {
+    if (hasSearched) {
+      fetchData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch]);
 
   // Combine and filter activities
   const allActivities = useMemo(() => {
@@ -275,8 +321,13 @@ export function PickHistory() {
     return activities;
   }, [picks, issues, showPicks, showIssues, page]);
 
-  // Filter by search query
+  // Filter by search query (local filter for instant feedback while debounce pending)
+  // Server-side filtering is the primary filter; this provides immediate UI response
   const filteredActivities = useMemo(() => {
+    // If search matches debounced, server already filtered - no local filter needed
+    if (searchQuery === debouncedSearch) return allActivities;
+
+    // Local filter for instant feedback while waiting for debounced server query
     if (!searchQuery) return allActivities;
     const query = searchQuery.toLowerCase();
 
@@ -300,7 +351,7 @@ export function PickHistory() {
         );
       }
     });
-  }, [allActivities, searchQuery]);
+  }, [allActivities, searchQuery, debouncedSearch]);
 
   // Group activities by date
   const groupedActivities = useMemo(() => {
@@ -401,6 +452,7 @@ export function PickHistory() {
         setHasMore((picksData?.length || 0) === PAGE_SIZE);
 
         // Fetch ALL picks for accurate stats (separate lightweight query)
+        // Supabase defaults to 1000 rows - we need all picks for accurate stats
         const { data: allPicksData } = await supabase
           .from('picks')
           .select(`
@@ -411,7 +463,8 @@ export function PickHistory() {
             )
           `)
           .gte('picked_at', startISO)
-          .lte('picked_at', endISO);
+          .lte('picked_at', endISO)
+          .limit(50000);
 
         if (allPicksData) {
           const totalQty = allPicksData.reduce((sum: number, p: any) => sum + (p.qty_picked || 0), 0);
@@ -689,7 +742,7 @@ export function PickHistory() {
 
           {/* Search Button */}
           <div className="flex flex-col sm:flex-row gap-2">
-            <Button onClick={fetchData} disabled={loading} className="flex-1 sm:flex-none">
+            <Button onClick={() => fetchData()} disabled={loading} className="flex-1 sm:flex-none">
               <Search className={`h-4 w-4 mr-2 ${loading ? 'animate-pulse' : ''}`} />
               {loading ? 'Searching...' : 'Search'}
             </Button>
@@ -746,7 +799,7 @@ export function PickHistory() {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  placeholder="Search within results by name, part number, SO number, location..."
+                  placeholder="Search all picks by name, part number, SO number, tool number..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10"

@@ -57,10 +57,12 @@ export function useGlobalSearch() {
       let picksByLineItem = new Map<string, number>();
 
       if (lineItemIds.length > 0) {
+        // Supabase defaults to 1000 rows - need higher limit for accurate totals
         const { data: picksData, error: picksError } = await supabase
           .from('picks')
           .select('line_item_id, qty_picked')
-          .in('line_item_id', lineItemIds);
+          .in('line_item_id', lineItemIds)
+          .limit(50000);
 
         if (picksError) throw picksError;
 

@@ -39,7 +39,8 @@ export function useBOMTemplates() {
     try {
       const [templateRes, itemsRes] = await Promise.all([
         supabase.from('bom_templates').select('*').eq('id', templateId).single(),
-        supabase.from('bom_template_items').select('*').eq('template_id', templateId),
+        // Supabase defaults to 1000 rows - need higher limit for large templates
+        supabase.from('bom_template_items').select('*').eq('template_id', templateId).limit(10000),
       ]);
 
       if (templateRes.error) throw templateRes.error;
