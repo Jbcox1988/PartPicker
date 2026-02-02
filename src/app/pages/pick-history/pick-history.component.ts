@@ -593,21 +593,36 @@ export class PickHistoryComponent implements OnInit {
       this.totalPickCount = picksCount || 0;
       this.hasMore = (picksData?.length || 0) === PAGE_SIZE;
 
-      // Fetch ALL picks for accurate stats (separate lightweight query)
-      // Supabase defaults to 1000 rows - we need all picks for accurate stats
-      const { data: allPicksData } = await this.supabase.from('picks')
-        .select(`
-          qty_picked,
-          picked_by,
-          line_items!inner (
-            part_number
-          )
-        `)
-        .gte('picked_at', startISO)
-        .lte('picked_at', endISO)
-        .limit(50000);
+      // Fetch ALL picks for accurate stats using pagination
+      // Supabase has a server-side limit of 1000 rows per request
+      const STATS_PAGE_SIZE = 1000;
+      let allPicksData: any[] = [];
+      let statsPage = 0;
+      let hasMoreStats = true;
 
-      if (allPicksData) {
+      while (hasMoreStats) {
+        const { data: statsPageData } = await this.supabase.from('picks')
+          .select(`
+            qty_picked,
+            picked_by,
+            line_items!inner (
+              part_number
+            )
+          `)
+          .gte('picked_at', startISO)
+          .lte('picked_at', endISO)
+          .range(statsPage * STATS_PAGE_SIZE, (statsPage + 1) * STATS_PAGE_SIZE - 1);
+
+        if (statsPageData && statsPageData.length > 0) {
+          allPicksData = allPicksData.concat(statsPageData);
+          hasMoreStats = statsPageData.length === STATS_PAGE_SIZE;
+          statsPage++;
+        } else {
+          hasMoreStats = false;
+        }
+      }
+
+      if (allPicksData.length > 0) {
         this.totalQtyPicked = allPicksData.reduce((sum: number, p: any) => sum + (p.qty_picked || 0), 0);
         this.allUniqueParts = new Set(allPicksData.map((p: any) => p.line_items?.part_number).filter(Boolean)).size;
         this.allUniqueUsers = new Set(allPicksData.map((p: any) => p.picked_by).filter(Boolean)).size;
