@@ -11,6 +11,7 @@ import { Issues } from '@/pages/Issues';
 import { PickHistory } from '@/pages/PickHistory';
 import { OfflineIndicator, InstallPrompt, UpdatePrompt } from '@/components/pwa';
 import { NamePrompt } from '@/components/NamePrompt';
+import { PasswordGate } from '@/components/PasswordGate';
 
 function App() {
   return (
@@ -29,7 +30,10 @@ function App() {
         </Routes>
       </MainLayout>
 
-      {/* Name Prompt - shows when user first visits */}
+      {/* Password Gate - must authenticate before using app */}
+      <PasswordGate />
+
+      {/* Name Prompt - shows when user first visits (after authentication) */}
       <NamePrompt />
 
       {/* PWA Components */}

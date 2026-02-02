@@ -6,6 +6,7 @@ const SETTINGS_KEY = 'tool-pick-list-settings';
 const defaultSettings: UserSettings = {
   user_name: '',
   theme: 'system',
+  isAuthenticated: false,
 };
 
 export function useSettings() {
@@ -35,10 +36,20 @@ export function useSettings() {
     return settings.user_name || 'Anonymous';
   };
 
+  const isAuthenticated = (): boolean => {
+    return settings.isAuthenticated === true;
+  };
+
+  const authenticate = () => {
+    updateSettings({ isAuthenticated: true });
+  };
+
   return {
     settings,
     loaded,
     updateSettings,
     getUserName,
+    isAuthenticated,
+    authenticate,
   };
 }
