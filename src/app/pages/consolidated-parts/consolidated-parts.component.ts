@@ -148,7 +148,8 @@ type FilterType = 'all' | 'remaining' | 'complete' | 'low_stock' | 'out_of_stock
               </tr>
             </thead>
             <tbody>
-              <tr *ngFor="let part of filteredParts"
+              <tr *ngFor="let part of filteredParts; let idx = index"
+                  [id]="'part-row-' + idx"
                   [class.table-success]="part.remaining === 0"
                   [class.table-warning]="part.total_picked > 0 && part.remaining > 0"
                   [class.table-danger]="getQtyAvailable(part) === 0 && part.remaining > 0">
@@ -223,6 +224,7 @@ export class ConsolidatedPartsComponent implements OnInit, OnDestroy {
   // Multi-order pick dialog
   showMultiOrderPick = false;
   selectedPart: ConsolidatedPart | null = null;
+  scrollToPartNumber: string | null = null;
 
   // Track qty_available per part (may need to fetch from line_items)
   private qtyAvailableMap: Map<string, number | null> = new Map();
@@ -247,11 +249,35 @@ export class ConsolidatedPartsComponent implements OnInit, OnDestroy {
             this.qtyAvailableMap.set(p.part_number, null);
           }
         });
+        // Scroll to tracked part after data refresh
+        if (this.scrollToPartNumber) {
+          this.scrollToPartByNumber();
+        }
       }),
       this.partsService.loading$.subscribe(loading => {
         this.loading = loading;
       })
     );
+  }
+
+  private scrollToPartByNumber(): void {
+    if (!this.scrollToPartNumber) return;
+
+    // Find the index of the part in filteredParts
+    const index = this.filteredParts.findIndex(p => p.part_number === this.scrollToPartNumber);
+
+    if (index >= 0) {
+      setTimeout(() => {
+        const element = document.getElementById(`part-row-${index}`);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        this.scrollToPartNumber = null;
+      }, 100);
+    } else {
+      // Part not found (may be hidden by filter), clear gracefully
+      this.scrollToPartNumber = null;
+    }
   }
 
   ngOnDestroy(): void {
@@ -349,6 +375,11 @@ export class ConsolidatedPartsComponent implements OnInit, OnDestroy {
   async handleMultiOrderPick(picks: { lineItemId: string; qty: number }[]): Promise<void> {
     const settings = this.settingsService.getSettings();
     const userName = settings.user_name || 'Unknown';
+
+    // Track part for scroll after refresh
+    if (this.selectedPart) {
+      this.scrollToPartNumber = this.selectedPart.part_number;
+    }
 
     for (const pick of picks) {
       // Find the order info for this line item
