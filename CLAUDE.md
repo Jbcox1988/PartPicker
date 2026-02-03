@@ -156,21 +156,27 @@ Components use Angular standalone component pattern:
 
 ### Items to Order Page (`/items-to-order`)
 
-Shows parts that have **insufficient stock** to complete active orders. This includes:
-- **Out of Stock**: `qty_available = 0`
-- **Low Stock**: `qty_available > 0` but less than remaining quantity needed
+Shows parts that have **insufficient stock** to complete active orders, with a tabbed view:
 
-**Logic**:
+**Tabs**:
+- **Need to Order**: Items where `qty_to_order > 0` (stock + on-order doesn't cover remaining need)
+- **On Order**: Items where `qty_on_order > 0` (includes both fully and partially covered items)
+
+Filters (search, order, location, sort) and stats update per active tab.
+
+**Logic** (`ItemsToOrderService` in `consolidated-parts.service.ts`):
 1. Fetch all line items from active orders (not complete/cancelled)
 2. Calculate `remaining = total_qty_needed - total_picked` for each
-3. Filter to items where `qty_available < remaining` (not enough stock)
+3. Skip fully picked items (`remaining <= 0`)
 4. Group by part number, aggregating across orders
-5. Calculate `qty_to_order = remaining - qty_available`
+5. Calculate `qty_to_order = remaining - qty_available - qty_on_order`
+6. Split into two observables: `items$` (qty_to_order > 0) and `onOrderItems$` (qty_on_order > 0)
 
 **Key fields in `ItemToOrder` type**:
 - `remaining`: Total quantity still needed to pick (across all orders)
 - `qty_available`: Current stock on hand
-- `qty_to_order`: How many we need to order (`remaining - qty_available`)
+- `qty_on_order`: Quantity already on order from supplier
+- `qty_to_order`: How many we still need to order (`remaining - qty_available - qty_on_order`)
 
 ### Inventory Sync
 

@@ -8,7 +8,7 @@ A comprehensive application for managing pick lists and tracking picking progres
 - **Orders Management**: Create, import, edit, and track orders
 - **Picking Interface**: Track parts picked for each tool in an order
 - **Consolidated Parts View**: See all parts needed across active orders
-- **Items to Order**: Track parts with no stock that need to be ordered
+- **Items to Order**: Track parts needing to be ordered and parts currently on order
 - **Issues Tracking**: Report and resolve picking issues
 - **Excel Import/Export**: Import orders from Excel, export for offline use
 
