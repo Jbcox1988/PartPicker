@@ -197,11 +197,13 @@ export class ConsolidatedPartsService implements OnDestroy {
 })
 export class ItemsToOrderService implements OnDestroy {
   private itemsSubject = new BehaviorSubject<ItemToOrder[]>([]);
+  private onOrderItemsSubject = new BehaviorSubject<ItemToOrder[]>([]);
   private loadingSubject = new BehaviorSubject<boolean>(true);
   private errorSubject = new BehaviorSubject<string | null>(null);
   private subscription: RealtimeChannel | null = null;
 
   items$ = this.itemsSubject.asObservable();
+  onOrderItems$ = this.onOrderItemsSubject.asObservable();
   loading$ = this.loadingSubject.asObservable();
   error$ = this.errorSubject.asObservable();
 
@@ -244,10 +246,11 @@ export class ItemsToOrderService implements OnDestroy {
 
       if (activeOrderIds.length === 0) {
         this.itemsSubject.next([]);
+        this.onOrderItemsSubject.next([]);
         return;
       }
 
-      // Fetch line items with qty_available = 0 for active orders with pagination
+      // Fetch all line items for active orders with pagination
       let lineItemsData: any[] = [];
       {
         const pageSize = 1000;
@@ -258,7 +261,6 @@ export class ItemsToOrderService implements OnDestroy {
           const { data, error: lineItemsError } = await this.supabase.from('line_items')
             .select('*')
             .in('order_id', activeOrderIds)
-            .eq('qty_available', 0)
             .range(offset, offset + pageSize - 1);
 
           if (lineItemsError) throw lineItemsError;
@@ -307,7 +309,7 @@ export class ItemsToOrderService implements OnDestroy {
         picksByLineItem.set(pick.line_item_id, current + pick.qty_picked);
       }
 
-      // Group by part number
+      // Group by part number — do NOT skip items based on stock+on-order coverage
       const itemMap = new Map<string, ItemToOrder>();
 
       for (const item of lineItemsData || []) {
@@ -357,12 +359,19 @@ export class ItemsToOrderService implements OnDestroy {
         }
       }
 
-      // Filter out items fully covered by stock + on-order, and sort
-      const items = Array.from(itemMap.values())
+      // Split into two lists from the grouped data
+      const allGrouped = Array.from(itemMap.values());
+
+      const needToOrder = allGrouped
         .filter(item => item.qty_to_order > 0)
         .sort((a, b) => a.part_number.localeCompare(b.part_number));
 
-      this.itemsSubject.next(items);
+      const onOrder = allGrouped
+        .filter(item => item.qty_on_order !== null && item.qty_on_order > 0)
+        .sort((a, b) => a.part_number.localeCompare(b.part_number));
+
+      this.itemsSubject.next(needToOrder);
+      this.onOrderItemsSubject.next(onOrder);
     } catch (err) {
       this.errorSubject.next(err instanceof Error ? err.message : 'Failed to fetch items to order');
     } finally {
