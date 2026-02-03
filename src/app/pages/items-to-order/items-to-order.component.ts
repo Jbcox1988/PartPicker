@@ -8,6 +8,10 @@ import { UtilsService } from '../../services/utils.service';
 import { ExcelService } from '../../services/excel.service';
 import { ItemToOrder } from '../../models';
 
+type SortMode = 'remaining' | 'part_number' | 'location';
+
+const ITEMS_TO_ORDER_SORT_KEY = 'items-to-order-sort-preference';
+
 @Component({
   selector: 'app-items-to-order',
   standalone: true,
@@ -24,27 +28,140 @@ import { ItemToOrder } from '../../models';
         </button>
       </div>
 
-      <!-- Info Alert -->
-      <div class="alert alert-info d-flex align-items-center mb-4" *ngIf="!loading && filteredItems.length > 0">
-        <i class="bi bi-info-circle me-2"></i>
-        <span>Showing {{ filteredItems.length }} part(s) that need to be ordered.</span>
+      <!-- Stats Cards -->
+      <div class="row g-3 mb-4" *ngIf="!loading && filteredItems.length > 0">
+        <div class="col-md-4">
+          <div class="card border-start border-warning border-4">
+            <div class="card-body d-flex align-items-center gap-3">
+              <div class="rounded-circle bg-warning bg-opacity-10 p-2">
+                <i class="bi bi-cart3 fs-5 text-warning"></i>
+              </div>
+              <div>
+                <div class="fs-4 fw-bold">{{ statsUniqueParts }}</div>
+                <div class="text-muted small">Unique Parts to Order</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="card border-start border-danger border-4">
+            <div class="card-body d-flex align-items-center gap-3">
+              <div class="rounded-circle bg-danger bg-opacity-10 p-2">
+                <i class="bi bi-exclamation-circle fs-5 text-danger"></i>
+              </div>
+              <div>
+                <div class="fs-4 fw-bold">{{ statsTotalQty }}</div>
+                <div class="text-muted small">Total Qty to Order</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="card">
+            <div class="card-body">
+              <div class="fs-4 fw-bold">{{ statsOrdersAffected }}</div>
+              <div class="text-muted small">Orders Affected</div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Filters -->
       <div class="card mb-4" *ngIf="items.length > 0">
         <div class="card-body">
-          <div class="d-flex flex-column flex-sm-row gap-3 align-items-sm-center">
-            <div class="input-group flex-grow-1">
+          <div class="d-flex flex-column gap-3">
+            <!-- Search Bar -->
+            <div class="input-group">
               <span class="input-group-text"><i class="bi bi-search"></i></span>
-              <input type="text" class="form-control" placeholder="Search by part number or description..."
+              <input type="text" class="form-control" placeholder="Search by part number, description, or location..."
                      [(ngModel)]="searchQuery">
             </div>
-            <div class="form-check">
-              <input class="form-check-input" type="checkbox" id="hideAlreadyOrdered"
-                     [checked]="hideAlreadyOrdered" (change)="toggleHideAlreadyOrdered()">
-              <label class="form-check-label text-nowrap" for="hideAlreadyOrdered">
-                Hide already ordered
-              </label>
+
+            <!-- Filter Options Row -->
+            <div class="d-flex flex-column flex-sm-row gap-2 align-items-sm-center flex-wrap">
+              <!-- Sort Dropdown -->
+              <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-arrow-down-up text-muted"></i>
+                <select class="form-select" style="width: auto;" [(ngModel)]="sortMode" (ngModelChange)="onSortChange()">
+                  <option value="remaining">Sort by Qty Needed (High to Low)</option>
+                  <option value="part_number">Sort by Part Number</option>
+                  <option value="location">Sort by Location</option>
+                </select>
+              </div>
+
+              <!-- Order Filter Dropdown -->
+              <div class="dropdown" (click)="$event.stopPropagation()">
+                <button class="btn btn-outline-secondary dropdown-toggle d-flex align-items-center gap-2"
+                        type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside">
+                  <i class="bi bi-funnel"></i>
+                  {{ selectedOrders.size === 0 ? 'All Orders' : selectedOrders.size + ' Order' + (selectedOrders.size !== 1 ? 's' : '') }}
+                </button>
+                <div class="dropdown-menu p-0" style="min-width: 220px;">
+                  <div class="d-flex border-bottom p-2 gap-2">
+                    <button class="btn btn-sm btn-ghost flex-fill" (click)="selectAllOrders()">Select All</button>
+                    <button class="btn btn-sm btn-ghost flex-fill" (click)="deselectAllOrders()">Clear</button>
+                  </div>
+                  <div style="max-height: 250px; overflow-y: auto;" class="p-2">
+                    <div *ngFor="let order of uniqueOrders"
+                         class="form-check px-2 py-1">
+                      <input class="form-check-input" type="checkbox"
+                             [id]="'order-' + order.id"
+                             [checked]="selectedOrders.has(order.id)"
+                             (change)="toggleOrder(order.id)">
+                      <label class="form-check-label" [for]="'order-' + order.id">
+                        SO-{{ order.so_number }}
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Location Filter Dropdown -->
+              <div class="dropdown" (click)="$event.stopPropagation()">
+                <button class="btn btn-outline-secondary dropdown-toggle d-flex align-items-center gap-2"
+                        type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside">
+                  <i class="bi bi-geo-alt"></i>
+                  {{ selectedLocations.size === 0 ? 'All Locations' : selectedLocations.size + ' Location' + (selectedLocations.size !== 1 ? 's' : '') }}
+                </button>
+                <div class="dropdown-menu p-0" style="min-width: 220px;">
+                  <div class="d-flex border-bottom p-2 gap-2">
+                    <button class="btn btn-sm btn-ghost flex-fill" (click)="selectAllLocations()">Select All</button>
+                    <button class="btn btn-sm btn-ghost flex-fill" (click)="deselectAllLocations()">Clear</button>
+                  </div>
+                  <div style="max-height: 250px; overflow-y: auto;" class="p-2">
+                    <div *ngFor="let loc of uniqueLocations"
+                         class="form-check px-2 py-1">
+                      <input class="form-check-input" type="checkbox"
+                             [id]="'loc-' + loc"
+                             [checked]="selectedLocations.has(loc)"
+                             (change)="toggleLocation(loc)">
+                      <label class="form-check-label" [for]="'loc-' + loc">
+                        {{ loc }}
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Hide Already Ordered -->
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="hideAlreadyOrdered"
+                       [checked]="hideAlreadyOrdered" (change)="toggleHideAlreadyOrdered()">
+                <label class="form-check-label text-nowrap" for="hideAlreadyOrdered">
+                  Hide already ordered
+                </label>
+              </div>
+
+              <!-- Clear Filters -->
+              <button *ngIf="hasActiveFilters" class="btn btn-sm btn-link text-muted text-decoration-none"
+                      (click)="clearFilters()">
+                <i class="bi bi-x me-1"></i>Clear
+              </button>
+
+              <!-- Results count -->
+              <span *ngIf="searchQuery || hasActiveFilters" class="text-muted small ms-auto">
+                {{ filteredItems.length }} result{{ filteredItems.length !== 1 ? 's' : '' }}
+              </span>
             </div>
           </div>
         </div>
@@ -118,7 +235,10 @@ import { ItemToOrder } from '../../models';
 
       <div *ngIf="!loading && items.length > 0 && filteredItems.length === 0" class="card">
         <div class="card-body text-center py-5 text-muted">
-          No items match your search
+          No items match your search or filters
+          <div *ngIf="hasActiveFilters" class="mt-2">
+            <button class="btn btn-sm btn-link" (click)="clearFilters()">Clear filters</button>
+          </div>
         </div>
       </div>
     </div>
@@ -129,6 +249,9 @@ export class ItemsToOrderComponent implements OnInit, OnDestroy {
   loading = true;
   searchQuery = '';
   hideAlreadyOrdered = true;
+  sortMode: SortMode = 'remaining';
+  selectedOrders = new Set<string>();
+  selectedLocations = new Set<string>();
 
   private subscriptions: Subscription[] = [];
 
@@ -137,9 +260,14 @@ export class ItemsToOrderComponent implements OnInit, OnDestroy {
     private excelService: ExcelService,
     public utils: UtilsService
   ) {
-    // Load hide already ordered preference from localStorage
-    const saved = localStorage.getItem('items-to-order-hide-already-ordered');
-    this.hideAlreadyOrdered = saved === null ? true : saved === 'true';
+    // Load preferences from localStorage
+    const savedHide = localStorage.getItem('items-to-order-hide-already-ordered');
+    this.hideAlreadyOrdered = savedHide === null ? true : savedHide === 'true';
+
+    const savedSort = localStorage.getItem(ITEMS_TO_ORDER_SORT_KEY);
+    if (savedSort === 'remaining' || savedSort === 'part_number' || savedSort === 'location') {
+      this.sortMode = savedSort;
+    }
   }
 
   ngOnInit(): void {
@@ -157,25 +285,152 @@ export class ItemsToOrderComponent implements OnInit, OnDestroy {
     this.subscriptions.forEach(sub => sub.unsubscribe());
   }
 
+  // Unique orders for filter dropdown
+  get uniqueOrders(): { id: string; so_number: string }[] {
+    const ordersMap = new Map<string, string>();
+    this.items.forEach(item => {
+      item.orders.forEach(o => ordersMap.set(o.order_id, o.so_number));
+    });
+    return Array.from(ordersMap.entries())
+      .map(([id, so_number]) => ({ id, so_number }))
+      .sort((a, b) => a.so_number.localeCompare(b.so_number, undefined, { numeric: true }));
+  }
+
+  // Unique locations for filter dropdown
+  get uniqueLocations(): string[] {
+    const locs = new Set<string>();
+    this.items.forEach(item => {
+      if (item.location) locs.add(item.location);
+    });
+    return Array.from(locs).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }
+
+  get hasActiveFilters(): boolean {
+    return this.selectedOrders.size > 0 || this.selectedLocations.size > 0 || this.hideAlreadyOrdered;
+  }
+
   get filteredItems(): ItemToOrder[] {
-    return this.items.filter(item => {
-      // Search filter
+    const filtered = this.items.filter(item => {
+      // Search filter (includes location)
       const matchesSearch = !this.searchQuery ||
         item.part_number.toLowerCase().includes(this.searchQuery.toLowerCase()) ||
-        item.description?.toLowerCase().includes(this.searchQuery.toLowerCase());
+        item.description?.toLowerCase().includes(this.searchQuery.toLowerCase()) ||
+        item.location?.toLowerCase().includes(this.searchQuery.toLowerCase());
+
+      // Order filter
+      const matchesOrder = this.selectedOrders.size === 0 ||
+        item.orders.some(o => this.selectedOrders.has(o.order_id));
+
+      // Location filter
+      const matchesLocation = this.selectedLocations.size === 0 ||
+        (!!item.location && this.selectedLocations.has(item.location));
 
       // Hide items that have already been ordered (qty_on_order > 0)
       const matchesAlreadyOrdered = !this.hideAlreadyOrdered ||
         !item.qty_on_order ||
         item.qty_on_order <= 0;
 
-      return matchesSearch && matchesAlreadyOrdered;
+      return matchesSearch && matchesOrder && matchesLocation && matchesAlreadyOrdered;
     });
+
+    // Sort
+    return this.sortItems(filtered);
   }
 
+  // Stats computed from filtered items
+  get statsUniqueParts(): number {
+    return this.filteredItems.length;
+  }
+
+  get statsTotalQty(): number {
+    return this.filteredItems.reduce((sum, p) => sum + p.qty_to_order, 0);
+  }
+
+  get statsOrdersAffected(): number {
+    return new Set(this.filteredItems.flatMap(item => item.orders.map(o => o.order_id))).size;
+  }
+
+  private sortItems(items: ItemToOrder[]): ItemToOrder[] {
+    const sorted = [...items];
+    switch (this.sortMode) {
+      case 'remaining':
+        sorted.sort((a, b) => {
+          const cmp = b.remaining - a.remaining;
+          if (cmp !== 0) return cmp;
+          return a.part_number.localeCompare(b.part_number, undefined, { numeric: true });
+        });
+        break;
+      case 'location':
+        sorted.sort((a, b) => {
+          const locA = a.location || '';
+          const locB = b.location || '';
+          if (!locA && locB) return 1;
+          if (locA && !locB) return -1;
+          if (!locA && !locB) return a.part_number.localeCompare(b.part_number, undefined, { numeric: true });
+          const cmp = locA.localeCompare(locB, undefined, { numeric: true });
+          if (cmp !== 0) return cmp;
+          return a.part_number.localeCompare(b.part_number, undefined, { numeric: true });
+        });
+        break;
+      case 'part_number':
+      default:
+        sorted.sort((a, b) => a.part_number.localeCompare(b.part_number, undefined, { numeric: true }));
+        break;
+    }
+    return sorted;
+  }
+
+  // Order filter actions
+  toggleOrder(orderId: string): void {
+    if (this.selectedOrders.has(orderId)) {
+      this.selectedOrders.delete(orderId);
+    } else {
+      this.selectedOrders.add(orderId);
+    }
+    this.selectedOrders = new Set(this.selectedOrders); // trigger change detection
+  }
+
+  selectAllOrders(): void {
+    this.selectedOrders = new Set(this.uniqueOrders.map(o => o.id));
+  }
+
+  deselectAllOrders(): void {
+    this.selectedOrders = new Set();
+  }
+
+  // Location filter actions
+  toggleLocation(location: string): void {
+    if (this.selectedLocations.has(location)) {
+      this.selectedLocations.delete(location);
+    } else {
+      this.selectedLocations.add(location);
+    }
+    this.selectedLocations = new Set(this.selectedLocations); // trigger change detection
+  }
+
+  selectAllLocations(): void {
+    this.selectedLocations = new Set(this.uniqueLocations);
+  }
+
+  deselectAllLocations(): void {
+    this.selectedLocations = new Set();
+  }
+
+  // Other actions
   toggleHideAlreadyOrdered(): void {
     this.hideAlreadyOrdered = !this.hideAlreadyOrdered;
     localStorage.setItem('items-to-order-hide-already-ordered', String(this.hideAlreadyOrdered));
+  }
+
+  onSortChange(): void {
+    localStorage.setItem(ITEMS_TO_ORDER_SORT_KEY, this.sortMode);
+  }
+
+  clearFilters(): void {
+    this.selectedOrders = new Set();
+    this.selectedLocations = new Set();
+    this.hideAlreadyOrdered = false;
+    localStorage.setItem('items-to-order-hide-already-ordered', 'false');
   }
 
   handleExport(): void {
