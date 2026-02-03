@@ -72,6 +72,7 @@ export function exportOrderToExcel(
     ['Status', order.status],
     ['Order Date', formatDateForExport(order.order_date)],
     ['Due Date', formatDateForExport(order.due_date)],
+    ['Est. Ship Date', formatDateForExport(order.estimated_ship_date)],
     ['Notes', order.notes || ''],
     [],
     ['Export Date', formatTimestamp(new Date().toISOString())],
@@ -173,6 +174,7 @@ export function exportOrdersSummaryToExcel(orders: OrderWithProgress[]) {
     'Status',
     'Order Date',
     'Due Date',
+    'Est. Ship Date',
     'Tools Count',
     'Total Items',
     'Picked Items',
@@ -189,6 +191,7 @@ export function exportOrdersSummaryToExcel(orders: OrderWithProgress[]) {
     order.status,
     formatDateForExport(order.order_date),
     formatDateForExport(order.due_date),
+    formatDateForExport(order.estimated_ship_date),
     order.tools?.length || 0,
     order.total_items,
     order.picked_items,
@@ -197,7 +200,7 @@ export function exportOrdersSummaryToExcel(orders: OrderWithProgress[]) {
   ]);
 
   const ordersSheet = XLSX.utils.aoa_to_sheet([ordersHeader, ...ordersData]);
-  setColumnWidths(ordersSheet, [15, 15, 25, 15, 10, 12, 12, 12, 12, 12, 12, 12, 40]);
+  setColumnWidths(ordersSheet, [15, 15, 25, 15, 10, 12, 12, 12, 12, 12, 12, 12, 12, 40]);
   XLSX.utils.book_append_sheet(workbook, ordersSheet, 'Orders');
 
   // Summary Stats Sheet
@@ -536,15 +539,15 @@ export function exportFullBackupToExcel(data: BackupData) {
   // Sheet 1: Orders
   const ordersHeader = [
     'SO Number', 'PO Number', 'Customer', 'Tool Model', 'Quantity',
-    'Status', 'Order Date', 'Due Date', 'Notes', 'Created At', 'Updated At'
+    'Status', 'Order Date', 'Due Date', 'Est. Ship Date', 'Notes', 'Created At', 'Updated At'
   ];
   const ordersData = data.orders.map(o => [
     `SO-${o.so_number}`, o.po_number || '', o.customer_name || '', o.tool_model || '',
     o.quantity || 1, o.status, formatDateForExport(o.order_date), formatDateForExport(o.due_date),
-    o.notes || '', formatTimestamp(o.created_at), formatTimestamp(o.updated_at)
+    formatDateForExport(o.estimated_ship_date), o.notes || '', formatTimestamp(o.created_at), formatTimestamp(o.updated_at)
   ]);
   const ordersSheet = XLSX.utils.aoa_to_sheet([ordersHeader, ...ordersData]);
-  setColumnWidths(ordersSheet, [15, 15, 25, 15, 10, 12, 12, 12, 30, 20, 20]);
+  setColumnWidths(ordersSheet, [15, 15, 25, 15, 10, 12, 12, 12, 12, 30, 20, 20]);
   XLSX.utils.book_append_sheet(workbook, ordersSheet, 'Orders');
 
   // Sheet 2: Tools (with SO Number instead of Order ID)

@@ -9,6 +9,7 @@ export interface Order {
   quantity: number | null;
   order_date: string | null;
   due_date: string | null;
+  estimated_ship_date: string | null;
   status: 'active' | 'complete' | 'cancelled';
   notes: string | null;
   created_at: string;

@@ -36,6 +36,7 @@ export function Orders() {
     quantity: '1',
     order_date: '',
     due_date: '',
+    estimated_ship_date: '',
     notes: '',
   });
 
@@ -86,6 +87,7 @@ export function Orders() {
       quantity: parseInt(newOrder.quantity) || 1,
       order_date: newOrder.order_date || null,
       due_date: newOrder.due_date || null,
+      estimated_ship_date: newOrder.estimated_ship_date || null,
       notes: newOrder.notes.trim() || null,
     });
 
@@ -97,6 +99,7 @@ export function Orders() {
       quantity: '1',
       order_date: '',
       due_date: '',
+      estimated_ship_date: '',
       notes: '',
     });
     setShowNewOrderDialog(false);
@@ -298,6 +301,9 @@ export function Orders() {
                             Due: {formatDate(order.due_date)}
                           </span>
                         )}
+                        {order.estimated_ship_date && (
+                          <span>Ship: {formatDate(order.estimated_ship_date)}</span>
+                        )}
                         <span>{order.tools.length} tool(s)</span>
                       </div>
                     </div>
@@ -419,6 +425,17 @@ export function Orders() {
                 value={newOrder.due_date}
                 onChange={(e) =>
                   setNewOrder({ ...newOrder, due_date: e.target.value })
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="estimated_ship_date">Est. Ship Date</Label>
+              <Input
+                id="estimated_ship_date"
+                type="date"
+                value={newOrder.estimated_ship_date}
+                onChange={(e) =>
+                  setNewOrder({ ...newOrder, estimated_ship_date: e.target.value })
                 }
               />
             </div>

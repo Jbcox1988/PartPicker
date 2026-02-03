@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS orders (
   customer_name TEXT,
   order_date DATE,
   due_date DATE,
+  estimated_ship_date DATE,
   status TEXT DEFAULT 'active' CHECK (status IN ('active', 'complete', 'cancelled')),
   notes TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -206,4 +207,10 @@ ALTER PUBLICATION supabase_realtime ADD TABLE bom_template_items;
 -- Index for performance
 CREATE INDEX IF NOT EXISTS idx_parts_catalog_part_number ON parts_catalog(part_number);
 CREATE INDEX IF NOT EXISTS idx_bom_template_items_template_id ON bom_template_items(template_id);
+`;
+
+// Migration SQL to add estimated_ship_date column to existing databases
+export const MIGRATION_ESTIMATED_SHIP_DATE_SQL = `
+-- Add estimated_ship_date column to orders table
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS estimated_ship_date DATE;
 `;

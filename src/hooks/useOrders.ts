@@ -106,6 +106,7 @@ export function useOrders() {
           customer_name: order.customer_name || null,
           order_date: order.order_date || null,
           due_date: order.due_date || null,
+          estimated_ship_date: order.estimated_ship_date || null,
           status: order.status || 'active',
           notes: order.notes || null,
         })

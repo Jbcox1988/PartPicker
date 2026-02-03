@@ -24,6 +24,7 @@ export function OrderInfoCard({ order, tools, onSave }: OrderInfoCardProps) {
     tool_model: '',
     order_date: '',
     due_date: '',
+    estimated_ship_date: '',
     notes: '',
   });
 
@@ -35,6 +36,7 @@ export function OrderInfoCard({ order, tools, onSave }: OrderInfoCardProps) {
       tool_model: order.tool_model || '',
       order_date: order.order_date || '',
       due_date: order.due_date || '',
+      estimated_ship_date: order.estimated_ship_date || '',
       notes: order.notes || '',
     });
     setIsEditing(true);
@@ -48,6 +50,7 @@ export function OrderInfoCard({ order, tools, onSave }: OrderInfoCardProps) {
       tool_model: editForm.tool_model || null,
       order_date: editForm.order_date || null,
       due_date: editForm.due_date || null,
+      estimated_ship_date: editForm.estimated_ship_date || null,
       notes: editForm.notes || null,
     });
     setIsEditing(false);
@@ -77,7 +80,8 @@ export function OrderInfoCard({ order, tools, onSave }: OrderInfoCardProps) {
                 order.customer_name,
                 order.po_number && `PO: ${order.po_number}`,
                 order.tool_model,
-                order.due_date && `Due: ${formatDate(order.due_date)}`
+                order.due_date && `Due: ${formatDate(order.due_date)}`,
+                order.estimated_ship_date && `Ship: ${formatDate(order.estimated_ship_date)}`
               ].filter(Boolean).join(' • ') || 'No details'}
             </span>
           )}
@@ -155,6 +159,10 @@ export function OrderInfoCard({ order, tools, onSave }: OrderInfoCardProps) {
                   </div>
                 )}
               </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Est. Ship Date</p>
+                <p className="font-medium">{formatDate(order.estimated_ship_date)}</p>
+              </div>
               <div className="col-span-2">
                 <p className="text-xs text-muted-foreground">Notes</p>
                 <p className="font-medium">{order.notes || '-'}</p>
@@ -210,6 +218,15 @@ export function OrderInfoCard({ order, tools, onSave }: OrderInfoCardProps) {
                   type="date"
                   value={editForm.due_date}
                   onChange={(e) => setEditForm({ ...editForm, due_date: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="edit_estimated_ship_date">Est. Ship Date</Label>
+                <Input
+                  id="edit_estimated_ship_date"
+                  type="date"
+                  value={editForm.estimated_ship_date}
+                  onChange={(e) => setEditForm({ ...editForm, estimated_ship_date: e.target.value })}
                 />
               </div>
               <div className="space-y-1 col-span-2 md:col-span-3">
