@@ -138,7 +138,7 @@ type SortOption = 'created' | 'due-date' | 'so-number';
                 <div style="width: 150px;">
                   <div class="d-flex justify-content-between small mb-1">
                     <span class="fw-medium">{{ order.progress_percent }}%</span>
-                    <span class="text-muted">{{ order.picked_items }}/{{ order.total_items }}</span>
+                    <span class="text-muted">{{ order.picked_items }}/{{ order.total_items }} parts</span>
                   </div>
                   <div class="progress" style="height: 8px;">
                     <div class="progress-bar" [style.width.%]="order.progress_percent"></div>

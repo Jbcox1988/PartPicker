@@ -120,7 +120,7 @@ interface PickHistoryItem {
               <div class="progress-bar" [style.width.%]="progressPercent"></div>
             </div>
             <span class="small fw-semibold">{{ progressPercent }}%</span>
-            <span class="small text-muted">({{ totalPicked }}/{{ totalNeeded }})</span>
+            <span class="small text-muted">({{ completedLineItems }}/{{ totalLineItems }} parts)</span>
           </div>
 
           <button class="btn btn-success btn-sm" *ngIf="isFullyPicked && order.status === 'active'" (click)="handleMarkComplete()">
@@ -304,7 +304,7 @@ interface PickHistoryItem {
             </div>
             <div class="d-flex align-items-center gap-2">
               <span class="small text-muted">Total:</span>
-              <span class="badge bg-primary">{{ totalPicked }}/{{ totalNeeded }}</span>
+              <span class="badge bg-primary">{{ completedLineItems }}/{{ totalLineItems }} parts</span>
             </div>
           </div>
         </div>
@@ -1227,28 +1227,33 @@ export class OrderDetailComponent implements OnInit, OnDestroy {
     this.isSubmitting = null;
   }
 
-  get totalNeeded(): number {
-    return this.lineItemsWithPicks.reduce((sum, item) => sum + item.total_qty_needed, 0);
+  get totalLineItems(): number {
+    return this.lineItemsWithPicks.length;
   }
 
-  get totalPicked(): number {
-    return this.lineItemsWithPicks.reduce((sum, item) => sum + item.total_picked, 0);
+  get completedLineItems(): number {
+    return this.lineItemsWithPicks.filter(
+      item => item.total_picked >= item.total_qty_needed
+    ).length;
   }
 
   get progressPercent(): number {
-    return this.totalNeeded > 0 ? Math.round((this.totalPicked / this.totalNeeded) * 100) : 0;
+    return this.totalLineItems > 0 ? Math.round((this.completedLineItems / this.totalLineItems) * 100) : 0;
   }
 
   get isFullyPicked(): boolean {
-    return this.progressPercent === 100 && this.totalNeeded > 0;
+    return this.progressPercent === 100 && this.totalLineItems > 0;
   }
 
   // Tool-related helpers
   getToolProgress(toolId: string): number {
     const toolPicks = this.picksService.getPicksForTool(toolId);
-    const toolTotal = this.lineItems.reduce((sum, item) => sum + item.qty_per_unit, 0);
-    const toolPicked = Array.from(toolPicks.values()).reduce((sum, qty) => sum + qty, 0);
-    return toolTotal > 0 ? Math.round((toolPicked / toolTotal) * 100) : 0;
+    const toolTotalItems = this.lineItems.length;
+    const toolCompletedItems = this.lineItems.filter(item => {
+      const picked = toolPicks.get(item.id) || 0;
+      return picked >= item.qty_per_unit;
+    }).length;
+    return toolTotalItems > 0 ? Math.round((toolCompletedItems / toolTotalItems) * 100) : 0;
   }
 
   getToolLabel(tool: Tool): string {
