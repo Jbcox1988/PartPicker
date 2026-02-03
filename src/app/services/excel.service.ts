@@ -343,6 +343,37 @@ export class ExcelService {
     const picksSheet = XLSX.utils.aoa_to_sheet([header, ...data]);
     XLSX.utils.book_append_sheet(workbook, picksSheet, 'Pick History');
 
+    // Part Totals Sheet - group by part number with total qty picked
+    const partTotalsMap = new Map<string, { qty: number; pickCount: number; soNumbers: Set<string> }>();
+    for (const pick of picks) {
+      const existing = partTotalsMap.get(pick.part_number);
+      if (existing) {
+        existing.qty += pick.qty_picked;
+        existing.pickCount += 1;
+        existing.soNumbers.add(`SO-${pick.so_number}`);
+      } else {
+        partTotalsMap.set(pick.part_number, {
+          qty: pick.qty_picked,
+          pickCount: 1,
+          soNumbers: new Set([`SO-${pick.so_number}`]),
+        });
+      }
+    }
+
+    const partTotalsHeader = ['Part Number', 'Total Qty Picked', 'Pick Count', 'SO Numbers'];
+    const sortedPartEntries = Array.from(partTotalsMap.entries()).sort((a, b) =>
+      a[0].localeCompare(b[0])
+    );
+    const partTotalsData = sortedPartEntries.map(([partNumber, data]) => [
+      partNumber,
+      data.qty,
+      data.pickCount,
+      Array.from(data.soNumbers).sort().join(', '),
+    ]);
+
+    const partTotalsSheet = XLSX.utils.aoa_to_sheet([partTotalsHeader, ...partTotalsData]);
+    XLSX.utils.book_append_sheet(workbook, partTotalsSheet, 'Part Totals');
+
     // Undo History Sheet
     if (undos && undos.length > 0) {
       const undoHeader = ['Undone At', 'Undone By', 'Originally Picked At', 'Originally Picked By', 'SO Number', 'Part Number', 'Tool Number', 'Qty'];
