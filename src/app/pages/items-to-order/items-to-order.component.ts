@@ -128,7 +128,7 @@ export class ItemsToOrderComponent implements OnInit, OnDestroy {
   items: ItemToOrder[] = [];
   loading = true;
   searchQuery = '';
-  hideAlreadyOrdered = false;
+  hideAlreadyOrdered = true;
 
   private subscriptions: Subscription[] = [];
 
@@ -139,7 +139,7 @@ export class ItemsToOrderComponent implements OnInit, OnDestroy {
   ) {
     // Load hide already ordered preference from localStorage
     const saved = localStorage.getItem('items-to-order-hide-already-ordered');
-    this.hideAlreadyOrdered = saved === 'true';
+    this.hideAlreadyOrdered = saved === null ? true : saved === 'true';
   }
 
   ngOnInit(): void {
