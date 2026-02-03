@@ -210,7 +210,7 @@ Updates `qty_available` on line items from external Excel inventory files:
 1. **Orders** contain multiple **Tools** (the actual units being built)
 2. **LineItems** are parts needed for an order
 3. **Picks** record when parts are picked for specific tools
-4. Progress is calculated as: `picked_items / total_items`
+4. Progress is calculated by counting completed line items (parts), not individual quantities. A line item counts as complete when `total_picked >= total_qty_needed`. Progress = `completed_parts / total_parts`.
 
 ## Routes
 
