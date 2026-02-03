@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/select';
 import { SearchInput } from '@/components/common/SearchInput';
 import { OrderFilterPopover } from '@/components/common/OrderFilterPopover';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { useItemsToOrder } from '@/hooks/useItemsToOrder';
@@ -36,6 +37,7 @@ export function ItemsToOrder() {
     return (saved as SortMode) || 'remaining';
   });
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
+  const [selectedLocations, setSelectedLocations] = useState<Set<string>>(new Set());
   const [hideAlreadyOrdered, setHideAlreadyOrdered] = useState<boolean>(() => {
     const saved = localStorage.getItem(HIDE_ALREADY_ORDERED_KEY);
     return saved === null ? true : saved === 'true';
@@ -62,10 +64,20 @@ export function ItemsToOrder() {
       .sort((a, b) => a.so_number.localeCompare(b.so_number, undefined, { numeric: true }));
   }, [items]);
 
-  const hasActiveFilters = selectedOrders.size > 0 || hideAlreadyOrdered;
+  // Compute unique locations for filter dropdown
+  const uniqueLocations = useMemo(() => {
+    const locs = new Set<string>();
+    items.forEach(item => {
+      if (item.location) locs.add(item.location);
+    });
+    return Array.from(locs).sort((a, b) => alphanumericCompare(a, b));
+  }, [items]);
+
+  const hasActiveFilters = selectedOrders.size > 0 || selectedLocations.size > 0 || hideAlreadyOrdered;
 
   const clearFilters = () => {
     setSelectedOrders(new Set());
+    setSelectedLocations(new Set());
     setHideAlreadyOrdered(false);
   };
 
@@ -87,6 +99,24 @@ export function ItemsToOrder() {
     setSelectedOrders(new Set());
   };
 
+  const toggleLocation = (location: string) => {
+    const newSelected = new Set(selectedLocations);
+    if (newSelected.has(location)) {
+      newSelected.delete(location);
+    } else {
+      newSelected.add(location);
+    }
+    setSelectedLocations(newSelected);
+  };
+
+  const selectAllLocations = () => {
+    setSelectedLocations(new Set(uniqueLocations));
+  };
+
+  const deselectAllLocations = () => {
+    setSelectedLocations(new Set());
+  };
+
   const filteredItems = items.filter((item) => {
     const matchesSearch =
       item.part_number.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
@@ -96,12 +126,15 @@ export function ItemsToOrder() {
     const matchesOrder = selectedOrders.size === 0
       || item.orders.some(o => selectedOrders.has(o.order_id));
 
+    const matchesLocation = selectedLocations.size === 0
+      || (item.location && selectedLocations.has(item.location));
+
     // Hide items that have already been ordered (qty_on_order > 0)
     const matchesAlreadyOrdered = !hideAlreadyOrdered
       || !item.qty_on_order
       || item.qty_on_order <= 0;
 
-    return matchesSearch && matchesOrder && matchesAlreadyOrdered;
+    return matchesSearch && matchesOrder && matchesLocation && matchesAlreadyOrdered;
   });
 
   // Sort filtered items
@@ -242,6 +275,54 @@ export function ItemsToOrder() {
                   onSelectAll={selectAllOrders}
                   onDeselectAll={deselectAllOrders}
                 />
+
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-48 justify-between">
+                      <span className="flex items-center gap-2">
+                        <MapPin className="h-4 w-4" />
+                        {selectedLocations.size === 0
+                          ? 'All Locations'
+                          : `${selectedLocations.size} Location${selectedLocations.size !== 1 ? 's' : ''}`}
+                      </span>
+                      <ChevronDown className="h-4 w-4 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-56 p-0" align="start">
+                    <div className="p-2 border-b flex gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="flex-1 h-8"
+                        onClick={selectAllLocations}
+                      >
+                        Select All
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="flex-1 h-8"
+                        onClick={deselectAllLocations}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                    <div className="max-h-64 overflow-y-auto p-2">
+                      {uniqueLocations.map((loc) => (
+                        <label
+                          key={loc}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-muted rounded cursor-pointer"
+                        >
+                          <Checkbox
+                            checked={selectedLocations.has(loc)}
+                            onCheckedChange={() => toggleLocation(loc)}
+                          />
+                          <span className="text-sm">{loc}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
 
                 <div className="flex items-center gap-2 px-2">
                   <Checkbox
