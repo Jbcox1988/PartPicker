@@ -96,6 +96,7 @@ src/
 - **Offline Support**: Service worker for offline picking
 - **Excel Import/Export**: Import orders from Excel, export pick lists
 - **Issue Tracking**: Report and track picking issues per line item
+- **Undo Audit Trail**: When picks are undone, a snapshot is saved to `pick_undos` for full traceability (who undid what, when, and who originally picked it)
 - **Parts Catalog**: Maintain a catalog of parts with locations
 - **BOM Templates**: Save and reuse bill of materials templates
 
@@ -106,6 +107,7 @@ Main tables:
 - `tools` - Tools within orders (e.g., "3137-1", "3137-2")
 - `line_items` - Parts to pick (part_number, qty_per_unit, location)
 - `picks` - Pick records (who picked what, when, for which tool)
+- `pick_undos` - Audit trail of undone picks (denormalized snapshots with part_number, tool_number, so_number, undone_by)
 - `issues` - Reported issues (out_of_stock, damaged, wrong_part, other)
 - `parts_catalog` - Master parts list with descriptions/locations
 - `bom_templates` - Saved bill of materials templates
@@ -225,12 +227,14 @@ Updates `qty_available` on line items from external Excel inventory files:
 
 ### Pick History Page (`/pick-history`)
 
-Filter and view all picks within a specific date/time range. Features:
+Filter and view all picks and undo events within a specific date/time range. Features:
 - **Quick Presets**: Today, Yesterday, This Week, Last 7 Days, This Month, Last 30 Days
 - **Custom Range**: Datetime pickers for precise start/end filtering
+- **Activity Type Filters**: Toggle visibility of Picks, Issues, and Undos
 - **Search Within Results**: Filter by picker name, part number, SO number, location
-- **Summary Stats**: Total picks, total quantity, unique parts, unique pickers
-- **Export to Excel**: Download filtered results as an Excel file
+- **Summary Stats**: Total picks, total quantity, unique parts, unique pickers, undo count
+- **Undo Records**: Displayed with red "Undo" badge, shows who undid and who originally picked
+- **Export to Excel**: Download filtered results as an Excel file (includes "Undo History" sheet)
 
 ## SO Spreadsheet Format
 

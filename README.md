@@ -108,6 +108,7 @@ The application uses the following tables in Supabase:
 - `tools` - Tools/units within each order
 - `line_items` - Parts to be picked
 - `picks` - Pick records (append-only for sync)
+- `pick_undos` - Audit trail of undone picks (denormalized snapshots for traceability)
 - `issues` - Reported picking issues
 - `parts_catalog` - Saved part information
 - `bom_templates` - Bill of Materials templates
