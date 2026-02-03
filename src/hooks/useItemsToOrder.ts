@@ -78,8 +78,9 @@ export function useItemsToOrder() {
         // Skip items that are fully picked
         if (remaining <= 0) continue;
 
-        // Skip items where we have enough stock to cover remaining need
-        if (qtyAvailable >= remaining) continue;
+        // Skip items where stock + on-order covers remaining need
+        const qtyOnOrder = item.qty_on_order ?? 0;
+        if ((qtyAvailable + qtyOnOrder) >= remaining) continue;
 
         const existing = itemsMap.get(item.part_number);
 
@@ -121,8 +122,9 @@ export function useItemsToOrder() {
         }
       }
 
-      // Convert to array and sort by part number
+      // Convert to array, exclude items fully covered by stock + on-order, and sort
       const itemsToOrder = Array.from(itemsMap.values())
+        .filter(item => item.qty_to_order > 0)
         .sort((a, b) => a.part_number.localeCompare(b.part_number));
 
       setItems(itemsToOrder);
