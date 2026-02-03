@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import type { Order, Tool, LineItem, Pick, Issue, PartsCatalogItem, BOMTemplate, BOMTemplateItem } from '@/types';
+import type { Order, Tool, LineItem, Pick, Issue, PartsCatalogItem, BOMTemplate, BOMTemplateItem, PickUndo } from '@/types';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -55,6 +55,11 @@ export type Database = {
         Row: BOMTemplateItem;
         Insert: Omit<BOMTemplateItem, 'id'>;
         Update: Partial<Omit<BOMTemplateItem, 'id'>>;
+      };
+      pick_undos: {
+        Row: PickUndo;
+        Insert: Omit<PickUndo, 'id' | 'undone_at'>;
+        Update: Partial<Omit<PickUndo, 'id'>>;
       };
     };
   };
@@ -213,4 +218,32 @@ CREATE INDEX IF NOT EXISTS idx_bom_template_items_template_id ON bom_template_it
 export const MIGRATION_ESTIMATED_SHIP_DATE_SQL = `
 -- Add estimated_ship_date column to orders table
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS estimated_ship_date DATE;
+`;
+
+// Migration SQL to create pick_undos audit trail table
+export const MIGRATION_PICK_UNDOS_SQL = `
+CREATE TABLE IF NOT EXISTS pick_undos (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  original_pick_id UUID NOT NULL,
+  line_item_id UUID NOT NULL,
+  tool_id UUID NOT NULL,
+  qty_picked INTEGER NOT NULL,
+  picked_by TEXT,
+  notes TEXT,
+  picked_at TIMESTAMPTZ NOT NULL,
+  -- Denormalized fields for easy querying
+  part_number TEXT NOT NULL,
+  tool_number TEXT NOT NULL,
+  so_number TEXT NOT NULL,
+  order_id UUID NOT NULL,
+  -- Audit metadata
+  undone_by TEXT NOT NULL,
+  undone_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE pick_undos ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all operations on pick_undos" ON pick_undos FOR ALL USING (true) WITH CHECK (true);
+ALTER PUBLICATION supabase_realtime ADD TABLE pick_undos;
+CREATE INDEX IF NOT EXISTS idx_pick_undos_undone_at ON pick_undos(undone_at);
+CREATE INDEX IF NOT EXISTS idx_pick_undos_line_item_id ON pick_undos(line_item_id);
 `;

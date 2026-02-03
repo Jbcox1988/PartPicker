@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import type { Order, Tool, Pick, OrderWithProgress, ConsolidatedPart, LineItemWithPicks, ItemToOrder, LineItem, Issue, PartsCatalogItem, BOMTemplate, BOMTemplateItem } from '@/types';
+import type { Order, Tool, Pick, OrderWithProgress, ConsolidatedPart, LineItemWithPicks, ItemToOrder, LineItem, Issue, PartsCatalogItem, BOMTemplate, BOMTemplateItem, PickUndo } from '@/types';
 import { format } from 'date-fns';
 
 /**
@@ -340,7 +340,18 @@ export interface PickHistoryItem {
   so_number: string;
 }
 
-export function exportPickHistoryToExcel(picks: PickHistoryItem[], title?: string) {
+export interface PickUndoHistoryItem {
+  undone_at: string;
+  undone_by: string;
+  picked_at: string;
+  picked_by: string | null;
+  qty_picked: number;
+  part_number: string;
+  tool_number: string;
+  so_number: string;
+}
+
+export function exportPickHistoryToExcel(picks: PickHistoryItem[], title?: string, undos?: PickUndoHistoryItem[]) {
   const workbook = XLSX.utils.book_new();
 
   // Pick History Sheet
@@ -368,11 +379,41 @@ export function exportPickHistoryToExcel(picks: PickHistoryItem[], title?: strin
   setColumnWidths(picksSheet, [20, 20, 15, 20, 15, 12, 40]);
   XLSX.utils.book_append_sheet(workbook, picksSheet, 'Pick History');
 
+  // Undo History Sheet (if undos provided)
+  if (undos && undos.length > 0) {
+    const undoHeader = [
+      'Undone At',
+      'Undone By',
+      'SO Number',
+      'Part Number',
+      'Tool Number',
+      'Qty Undone',
+      'Originally Picked At',
+      'Originally Picked By',
+    ];
+
+    const undoData = undos.map(undo => [
+      formatTimestamp(undo.undone_at),
+      undo.undone_by,
+      `SO-${undo.so_number}`,
+      undo.part_number,
+      undo.tool_number,
+      undo.qty_picked,
+      formatTimestamp(undo.picked_at),
+      undo.picked_by || 'Unknown',
+    ]);
+
+    const undoSheet = XLSX.utils.aoa_to_sheet([undoHeader, ...undoData]);
+    setColumnWidths(undoSheet, [20, 20, 15, 20, 15, 12, 20, 20]);
+    XLSX.utils.book_append_sheet(workbook, undoSheet, 'Undo History');
+  }
+
   // Summary Sheet
   const totalPicks = picks.length;
   const totalQty = picks.reduce((sum, p) => sum + p.qty_picked, 0);
   const uniqueUsers = new Set(picks.map(p => p.picked_by || 'Unknown')).size;
   const uniqueParts = new Set(picks.map(p => p.part_number)).size;
+  const totalUndos = undos?.length || 0;
 
   const summaryData = [
     [title || 'Pick History Report'],
@@ -381,6 +422,7 @@ export function exportPickHistoryToExcel(picks: PickHistoryItem[], title?: strin
     ['Total Qty Picked', totalQty],
     ['Unique Users', uniqueUsers],
     ['Unique Parts', uniqueParts],
+    ['Total Undo Records', totalUndos],
     [],
     ['Export Date', formatTimestamp(new Date().toISOString())],
   ];
@@ -515,6 +557,7 @@ export interface BackupData {
   partsCatalog: PartsCatalogItem[];
   bomTemplates: BOMTemplate[];
   bomTemplateItems: BOMTemplateItem[];
+  pickUndos?: PickUndo[];
 }
 
 export function exportFullBackupToExcel(data: BackupData) {
@@ -688,7 +731,29 @@ export function exportFullBackupToExcel(data: BackupData) {
   setColumnWidths(templateItemsSheet, [30, 20, 20, 40, 20, 12]);
   XLSX.utils.book_append_sheet(workbook, templateItemsSheet, 'BOM Template Items');
 
-  // Sheet 9: Summary
+  // Sheet 9: Pick Undos (audit trail)
+  if (data.pickUndos && data.pickUndos.length > 0) {
+    const pickUndosHeader = [
+      'Undone At', 'Undone By', 'SO Number', 'Part Number', 'Tool Number',
+      'Qty Undone', 'Originally Picked At', 'Originally Picked By', 'Notes'
+    ];
+    const pickUndosData = data.pickUndos.map(u => [
+      formatTimestamp(u.undone_at),
+      u.undone_by,
+      `SO-${u.so_number}`,
+      u.part_number,
+      u.tool_number,
+      u.qty_picked,
+      formatTimestamp(u.picked_at),
+      u.picked_by || '',
+      u.notes || ''
+    ]);
+    const pickUndosSheet = XLSX.utils.aoa_to_sheet([pickUndosHeader, ...pickUndosData]);
+    setColumnWidths(pickUndosSheet, [20, 20, 15, 20, 15, 12, 20, 20, 40]);
+    XLSX.utils.book_append_sheet(workbook, pickUndosSheet, 'Pick Undos');
+  }
+
+  // Sheet 10: Summary
   const summaryData = [
     ['Full Database Backup'],
     [],
@@ -701,6 +766,7 @@ export function exportFullBackupToExcel(data: BackupData) {
     ['Parts Catalog', data.partsCatalog.length],
     ['BOM Templates', data.bomTemplates.length],
     ['BOM Template Items', data.bomTemplateItems.length],
+    ['Pick Undos', data.pickUndos?.length || 0],
     [],
     ['Backup Date', formatTimestamp(new Date().toISOString())],
     [],

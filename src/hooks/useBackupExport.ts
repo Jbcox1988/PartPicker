@@ -21,6 +21,7 @@ export function useBackupExport() {
         partsCatalog,
         bomTemplates,
         bomTemplateItems,
+        pickUndos,
       ] = await Promise.all([
         fetchAllFromTable('orders', '*', { order: { column: 'created_at', ascending: false } }),
         fetchAllFromTable('tools', '*', { order: { column: 'created_at', ascending: false } }),
@@ -30,6 +31,7 @@ export function useBackupExport() {
         fetchAllFromTable('parts_catalog', '*', { order: { column: 'part_number', ascending: true } }).catch(() => []),
         fetchAllFromTable('bom_templates', '*', { order: { column: 'name', ascending: true } }).catch(() => []),
         fetchAllFromTable('bom_template_items', '*').catch(() => []),
+        fetchAllFromTable('pick_undos', '*', { order: { column: 'undone_at', ascending: false } }).catch(() => []),
       ]);
 
       const backupData: BackupData = {
@@ -41,6 +43,7 @@ export function useBackupExport() {
         partsCatalog,
         bomTemplates,
         bomTemplateItems,
+        pickUndos,
       };
 
       // Export to Excel

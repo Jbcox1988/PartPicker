@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { supabase } from '@/lib/supabase';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
-import { exportPickHistoryToExcel, type PickHistoryItem } from '@/lib/excelExport';
+import { exportPickHistoryToExcel, type PickHistoryItem, type PickUndoHistoryItem } from '@/lib/excelExport';
 import { format, startOfDay, endOfDay, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 import {
   Clock,
@@ -25,6 +25,7 @@ import {
   CheckCircle,
   AlertTriangle,
   History,
+  Undo2,
 } from 'lucide-react';
 
 interface PickRecord {
@@ -54,7 +55,21 @@ interface IssueRecord {
   order_id: string;
 }
 
-type ActivityRecord = PickRecord | IssueRecord;
+interface UndoRecord {
+  id: string;
+  type: 'undo';
+  qty_picked: number;
+  picked_by: string | null;
+  undone_by: string;
+  undone_at: string;
+  picked_at: string;
+  part_number: string;
+  tool_number: string;
+  so_number: string;
+  order_id: string;
+}
+
+type ActivityRecord = PickRecord | IssueRecord | UndoRecord;
 
 const PAGE_SIZE = 50;
 
@@ -71,6 +86,7 @@ const datePresets = [
 export function PickHistory() {
   const [picks, setPicks] = useState<PickRecord[]>([]);
   const [issues, setIssues] = useState<IssueRecord[]>([]);
+  const [undos, setUndos] = useState<UndoRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(0);
@@ -80,10 +96,12 @@ export function PickHistory() {
   const [allUniqueParts, setAllUniqueParts] = useState(0);
   const [allUniqueUsers, setAllUniqueUsers] = useState(0);
   const [totalIssueCount, setTotalIssueCount] = useState(0);
+  const [totalUndoCount, setTotalUndoCount] = useState(0);
 
   // Activity type filters
   const [showPicks, setShowPicks] = useState(true);
   const [showIssues, setShowIssues] = useState(true);
+  const [showUndos, setShowUndos] = useState(true);
 
   // Date/time filters - default to today
   const [startDate, setStartDate] = useState(() => format(startOfDay(new Date()), "yyyy-MM-dd'T'HH:mm"));
@@ -295,10 +313,42 @@ export function PickHistory() {
         setIssues(transformedIssues);
         setTotalIssueCount(transformedIssues.length);
       }
+
+      // Fetch undos in date range
+      if (page === 0) {
+        const { data: undoData, error: undoError } = await supabase
+          .from('pick_undos')
+          .select('*')
+          .gte('undone_at', startISO)
+          .lte('undone_at', endISO)
+          .order('undone_at', { ascending: false });
+
+        if (undoError) {
+          console.error('Error fetching undos:', undoError);
+        }
+
+        const transformedUndos: UndoRecord[] = (undoData || []).map((undo: any) => ({
+          id: undo.id,
+          type: 'undo' as const,
+          qty_picked: undo.qty_picked,
+          picked_by: undo.picked_by,
+          undone_by: undo.undone_by,
+          undone_at: undo.undone_at,
+          picked_at: undo.picked_at,
+          part_number: undo.part_number,
+          tool_number: undo.tool_number,
+          so_number: undo.so_number,
+          order_id: undo.order_id,
+        }));
+
+        setUndos(transformedUndos);
+        setTotalUndoCount(transformedUndos.length);
+      }
     } catch (err) {
       console.error('Error fetching data:', err);
       setPicks([]);
       setIssues([]);
+      setUndos([]);
     } finally {
       setLoading(false);
     }
@@ -329,15 +379,19 @@ export function PickHistory() {
       activities.push(...issues);
     }
 
+    if (showUndos && page === 0) {
+      activities.push(...undos);
+    }
+
     // Sort by timestamp descending
     activities.sort((a, b) => {
-      const timeA = a.type === 'pick' ? a.picked_at : a.timestamp;
-      const timeB = b.type === 'pick' ? b.picked_at : b.timestamp;
+      const timeA = a.type === 'pick' ? a.picked_at : a.type === 'undo' ? a.undone_at : a.timestamp;
+      const timeB = b.type === 'pick' ? b.picked_at : b.type === 'undo' ? b.undone_at : b.timestamp;
       return new Date(timeB).getTime() - new Date(timeA).getTime();
     });
 
     return activities;
-  }, [picks, issues, showPicks, showIssues, page]);
+  }, [picks, issues, undos, showPicks, showIssues, showUndos, page]);
 
   // Filter by search query (local filter for instant feedback while debounce pending)
   // Server-side filtering is the primary filter; this provides immediate UI response
@@ -359,6 +413,14 @@ export function PickHistory() {
           (activity.description && activity.description.toLowerCase().includes(query)) ||
           (activity.location && activity.location.toLowerCase().includes(query))
         );
+      } else if (activity.type === 'undo') {
+        return (
+          activity.undone_by.toLowerCase().includes(query) ||
+          (activity.picked_by && activity.picked_by.toLowerCase().includes(query)) ||
+          activity.part_number.toLowerCase().includes(query) ||
+          activity.so_number.toLowerCase().includes(query) ||
+          activity.tool_number.toLowerCase().includes(query)
+        );
       } else {
         return (
           (activity.user && activity.user.toLowerCase().includes(query)) ||
@@ -374,7 +436,7 @@ export function PickHistory() {
   // Group activities by date
   const groupedActivities = useMemo(() => {
     return filteredActivities.reduce((groups, activity) => {
-      const timestamp = activity.type === 'pick' ? activity.picked_at : activity.timestamp;
+      const timestamp = activity.type === 'pick' ? activity.picked_at : activity.type === 'undo' ? activity.undone_at : activity.timestamp;
       const date = format(new Date(timestamp), 'yyyy-MM-dd');
       if (!groups[date]) {
         groups[date] = [];
@@ -387,17 +449,20 @@ export function PickHistory() {
   // Calculate summary stats
   const summaryStats = useMemo(() => {
     const picksOnly = filteredActivities.filter((a): a is PickRecord => a.type === 'pick');
-    const issuesOnly = filteredActivities.filter((a): a is IssueRecord => a.type !== 'pick');
+    const issuesOnly = filteredActivities.filter((a): a is IssueRecord => a.type === 'issue_created' || a.type === 'issue_resolved');
+    const undosOnly = filteredActivities.filter((a): a is UndoRecord => a.type === 'undo');
 
     const totalQty = picksOnly.reduce((sum, p) => sum + p.qty_picked, 0);
     const uniqueParts = new Set(picksOnly.map(p => p.part_number)).size;
     const uniqueUsers = new Set([
       ...picksOnly.filter(p => p.picked_by).map(p => p.picked_by),
       ...issuesOnly.filter(i => i.user).map(i => i.user),
+      ...undosOnly.map(u => u.undone_by),
     ]).size;
     const issueCount = issuesOnly.length;
+    const undoCount = undosOnly.length;
 
-    return { totalQty, uniqueParts, uniqueUsers, pickCount: picksOnly.length, issueCount };
+    return { totalQty, uniqueParts, uniqueUsers, pickCount: picksOnly.length, issueCount, undoCount };
   }, [filteredActivities]);
 
   // Handle preset selection - also triggers search
@@ -573,10 +638,40 @@ export function PickHistory() {
 
         setIssues(transformedIssues);
         setTotalIssueCount(transformedIssues.length);
+
+        // Fetch undos in date range
+        const { data: undoData, error: undoError } = await supabase
+          .from('pick_undos')
+          .select('*')
+          .gte('undone_at', startISO)
+          .lte('undone_at', endISO)
+          .order('undone_at', { ascending: false });
+
+        if (undoError) {
+          console.error('Error fetching undos:', undoError);
+        }
+
+        const transformedUndos: UndoRecord[] = (undoData || []).map((undo: any) => ({
+          id: undo.id,
+          type: 'undo' as const,
+          qty_picked: undo.qty_picked,
+          picked_by: undo.picked_by,
+          undone_by: undo.undone_by,
+          undone_at: undo.undone_at,
+          picked_at: undo.picked_at,
+          part_number: undo.part_number,
+          tool_number: undo.tool_number,
+          so_number: undo.so_number,
+          order_id: undo.order_id,
+        }));
+
+        setUndos(transformedUndos);
+        setTotalUndoCount(transformedUndos.length);
       } catch (err) {
         console.error('Error fetching data:', err);
         setPicks([]);
         setIssues([]);
+        setUndos([]);
       } finally {
         setLoading(false);
       }
@@ -655,8 +750,27 @@ export function PickHistory() {
         so_number: pick.line_items.orders.so_number,
       }));
 
+      // Fetch undos for export
+      const { data: undoExportData } = await supabase
+        .from('pick_undos')
+        .select('*')
+        .gte('undone_at', startISO)
+        .lte('undone_at', endISO)
+        .order('undone_at', { ascending: false });
+
+      const undoExport: PickUndoHistoryItem[] = (undoExportData || []).map((undo: any) => ({
+        undone_at: undo.undone_at,
+        undone_by: undo.undone_by,
+        picked_at: undo.picked_at,
+        picked_by: undo.picked_by,
+        qty_picked: undo.qty_picked,
+        part_number: undo.part_number,
+        tool_number: undo.tool_number,
+        so_number: undo.so_number,
+      }));
+
       const dateRange = `${format(new Date(startDate), 'MMM d')} - ${format(new Date(endDate), 'MMM d, yyyy')}`;
-      exportPickHistoryToExcel(exportData, `Activity History: ${dateRange}`);
+      exportPickHistoryToExcel(exportData, `Activity History: ${dateRange}`, undoExport);
     } catch (err) {
       console.error('Export failed:', err);
     } finally {
@@ -668,6 +782,8 @@ export function PickHistory() {
     switch (type) {
       case 'pick':
         return <CheckCircle className="h-4 w-4 text-green-500 dark:text-green-400" />;
+      case 'undo':
+        return <Undo2 className="h-4 w-4 text-red-500 dark:text-red-400" />;
       case 'issue_created':
         return <AlertTriangle className="h-4 w-4 text-amber-500 dark:text-amber-400" />;
       case 'issue_resolved':
@@ -679,6 +795,8 @@ export function PickHistory() {
     switch (type) {
       case 'pick':
         return <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 dark:bg-green-950/20 dark:text-green-400 dark:border-green-800 text-xs">Pick</Badge>;
+      case 'undo':
+        return <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 dark:bg-red-950/20 dark:text-red-400 dark:border-red-800 text-xs">Undo</Badge>;
       case 'issue_created':
         return <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-800 text-xs">Issue</Badge>;
       case 'issue_resolved':
@@ -771,6 +889,13 @@ export function PickHistory() {
               />
               <span className="text-sm">Issues</span>
             </label>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <Checkbox
+                checked={showUndos}
+                onCheckedChange={(checked) => setShowUndos(checked === true)}
+              />
+              <span className="text-sm">Undos</span>
+            </label>
           </div>
 
           {/* Search Button */}
@@ -793,7 +918,7 @@ export function PickHistory() {
       {hasSearched && (
         <>
           {/* Summary Stats */}
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
             <Card>
               <CardContent className="pt-4">
                 <div className="text-2xl font-bold">{totalPickCount.toLocaleString()}</div>
@@ -822,6 +947,12 @@ export function PickHistory() {
               <CardContent className="pt-4">
                 <div className="text-2xl font-bold">{totalIssueCount}</div>
                 <p className="text-xs text-muted-foreground">Issues</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="text-2xl font-bold text-red-600 dark:text-red-400">{totalUndoCount}</div>
+                <p className="text-xs text-muted-foreground">Undos</p>
               </CardContent>
             </Card>
           </div>
@@ -884,11 +1015,16 @@ export function PickHistory() {
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="font-medium flex items-center gap-1">
                                   <User className="h-3 w-3" />
-                                  {activity.type === 'pick' ? (activity.picked_by || 'Unknown') : (activity.user || 'Unknown')}
+                                  {activity.type === 'pick' ? (activity.picked_by || 'Unknown') : activity.type === 'undo' ? activity.undone_by : (activity.user || 'Unknown')}
                                 </span>
                                 {getActivityBadge(activity.type)}
                                 {activity.type === 'pick' && (
                                   <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 dark:bg-green-950/20 dark:text-green-400 dark:border-green-800 text-xs">
+                                    {activity.qty_picked}x
+                                  </Badge>
+                                )}
+                                {activity.type === 'undo' && (
+                                  <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 dark:bg-red-950/20 dark:text-red-400 dark:border-red-800 text-xs">
                                     {activity.qty_picked}x
                                   </Badge>
                                 )}
@@ -903,13 +1039,21 @@ export function PickHistory() {
                                     {activity.tool_number}
                                   </Badge>
                                 )}
+                                {activity.type === 'undo' && (
+                                  <Badge variant="secondary" className="text-xs">
+                                    {activity.tool_number}
+                                  </Badge>
+                                )}
                               </div>
                               <p className="text-sm text-muted-foreground mt-0.5">
                                 <span className="font-mono font-medium">{activity.part_number}</span>
                                 {activity.type === 'pick' && activity.description && (
                                   <span className="text-muted-foreground"> - {activity.description}</span>
                                 )}
-                                {activity.type !== 'pick' && (
+                                {activity.type === 'undo' && activity.picked_by && (
+                                  <span className="text-muted-foreground"> - originally picked by {activity.picked_by}</span>
+                                )}
+                                {activity.type !== 'pick' && activity.type !== 'undo' && (
                                   <span className="text-muted-foreground"> - {activity.issue_type.replace('_', ' ')}</span>
                                 )}
                               </p>
@@ -923,14 +1067,14 @@ export function PickHistory() {
                                   Note: {activity.notes}
                                 </p>
                               )}
-                              {activity.type !== 'pick' && activity.description && (
+                              {activity.type !== 'pick' && activity.type !== 'undo' && activity.description && (
                                 <p className="text-xs text-muted-foreground mt-0.5 italic">
                                   {activity.description}
                                 </p>
                               )}
                             </div>
                             <div className="text-xs text-muted-foreground whitespace-nowrap">
-                              {format(new Date(activity.type === 'pick' ? activity.picked_at : activity.timestamp), 'h:mm a')}
+                              {format(new Date(activity.type === 'pick' ? activity.picked_at : activity.type === 'undo' ? activity.undone_at : activity.timestamp), 'h:mm a')}
                             </div>
                           </div>
                         ))}

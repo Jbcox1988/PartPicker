@@ -51,7 +51,7 @@ interface PickingInterfaceProps {
     pickedBy?: string,
     notes?: string
   ) => Promise<(Pick & { overPickWarning?: string }) | null>;
-  onUndoPick: (pickId: string) => Promise<boolean>;
+  onUndoPick: (pickId: string, undoneBy?: string) => Promise<boolean>;
   getPicksForTool: (toolId: string) => Map<string, number>;
   getPicksForAllTools: () => Map<string, Map<string, number>>;
   getPickHistory: (lineItemId: string, toolId: string) => Pick[];
@@ -578,7 +578,7 @@ export function PickingInterface({
 
     // Delete all picks
     for (const pick of pickHistory) {
-      await onUndoPick(pick.id);
+      await onUndoPick(pick.id, getUserName());
     }
 
     setIsSubmitting(null);
@@ -596,7 +596,7 @@ export function PickingInterface({
 
     // Delete all picks
     for (const pick of pickHistory) {
-      await onUndoPick(pick.id);
+      await onUndoPick(pick.id, getUserName());
     }
 
     setIsSubmitting(null);
@@ -675,7 +675,7 @@ export function PickingInterface({
 
     const lastPick = history[0];
     setIsSubmitting(item.id);
-    await onUndoPick(lastPick.id);
+    await onUndoPick(lastPick.id, getUserName());
     setIsSubmitting(null);
   };
 
@@ -684,7 +684,7 @@ export function PickingInterface({
     if (!deleteConfirmPick) return;
 
     setIsDeleting(true);
-    await onUndoPick(deleteConfirmPick.id);
+    await onUndoPick(deleteConfirmPick.id, getUserName());
     setIsDeleting(false);
     setDeleteConfirmPick(null);
   };

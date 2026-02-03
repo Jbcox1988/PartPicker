@@ -28,7 +28,7 @@ interface PickingSectionProps {
   onManageToolsClick: () => void;
   onAddPartClick: () => void;
   onRecordPick: (lineItemId: string, toolId: string, qtyPicked: number, pickedBy?: string, notes?: string) => Promise<Pick | null>;
-  onUndoPick: (pickId: string) => Promise<boolean>;
+  onUndoPick: (pickId: string, undoneBy?: string) => Promise<boolean>;
   getPicksForTool: (toolId: string) => Map<string, number>;
   getPicksForAllTools: () => Map<string, Map<string, number>>;
   getPickHistory: (lineItemId: string, toolId: string) => Pick[];

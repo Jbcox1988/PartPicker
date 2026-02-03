@@ -9,6 +9,7 @@ import {
   AlertTriangle,
   AlertCircle,
   ShoppingCart,
+  Undo2,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -311,10 +312,16 @@ export function Dashboard() {
                     className="flex items-start gap-3 text-sm"
                   >
                     <div className="mt-1">
-                      <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                      {activity.type === 'pick_undo' ? (
+                        <Undo2 className="h-4 w-4 text-red-600 dark:text-red-400" />
+                      ) : (
+                        <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                      )}
                     </div>
                     <div className="flex-1">
-                      <p>{activity.message}</p>
+                      <p className={activity.type === 'pick_undo' ? 'text-red-600 dark:text-red-400' : ''}>
+                        {activity.message}
+                      </p>
                       <p className="text-muted-foreground">
                         {activity.user} - SO-{activity.so_number}
                       </p>
