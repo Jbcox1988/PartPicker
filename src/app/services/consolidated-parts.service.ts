@@ -357,8 +357,9 @@ export class ItemsToOrderService implements OnDestroy {
         }
       }
 
-      // Sort by part number
+      // Filter out items fully covered by stock + on-order, and sort
       const items = Array.from(itemMap.values())
+        .filter(item => item.qty_to_order > 0)
         .sort((a, b) => a.part_number.localeCompare(b.part_number));
 
       this.itemsSubject.next(items);
