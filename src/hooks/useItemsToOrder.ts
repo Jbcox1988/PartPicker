@@ -5,6 +5,7 @@ import type { ItemToOrder } from '@/types';
 
 export function useItemsToOrder() {
   const [items, setItems] = useState<ItemToOrder[]>([]);
+  const [onOrderItems, setOnOrderItems] = useState<ItemToOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,21 +67,16 @@ export function useItemsToOrder() {
         picksByLineItem.set(pick.line_item_id, current + pick.qty_picked);
       }
 
-      // Group by part number
+      // Group by part number — do NOT skip items based on stock+on-order coverage
       const itemsMap = new Map<string, ItemToOrder>();
 
       for (const item of lineItemsData || []) {
         const orderInfo = item.orders as any;
         const picked = picksByLineItem.get(item.id) || 0;
         const remaining = item.total_qty_needed - picked;
-        const qtyAvailable = item.qty_available ?? 0;
 
         // Skip items that are fully picked
         if (remaining <= 0) continue;
-
-        // Skip items where stock + on-order covers remaining need
-        const qtyOnOrder = item.qty_on_order ?? 0;
-        if ((qtyAvailable + qtyOnOrder) >= remaining) continue;
 
         const existing = itemsMap.get(item.part_number);
 
@@ -122,12 +118,19 @@ export function useItemsToOrder() {
         }
       }
 
-      // Convert to array, exclude items fully covered by stock + on-order, and sort
-      const itemsToOrder = Array.from(itemsMap.values())
+      // Split into two lists from the grouped data
+      const allGrouped = Array.from(itemsMap.values());
+
+      const needToOrder = allGrouped
         .filter(item => item.qty_to_order > 0)
         .sort((a, b) => a.part_number.localeCompare(b.part_number));
 
-      setItems(itemsToOrder);
+      const onOrder = allGrouped
+        .filter(item => item.qty_on_order !== null && item.qty_on_order > 0)
+        .sort((a, b) => a.part_number.localeCompare(b.part_number));
+
+      setItems(needToOrder);
+      setOnOrderItems(onOrder);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch items to order');
     } finally {
@@ -165,6 +168,7 @@ export function useItemsToOrder() {
 
   return {
     items,
+    onOrderItems,
     loading,
     error,
     refresh: fetchItems,
