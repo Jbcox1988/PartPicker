@@ -110,6 +110,7 @@ export interface ConsolidatedPart {
     order_id: string;
     so_number: string;
     order_date: string | null;
+    tool_model: string | null;
     needed: number;
     picked: number;
     line_item_id: string;
@@ -131,6 +132,7 @@ export interface ItemToOrder {
   orders: {
     order_id: string;
     so_number: string;
+    tool_model: string | null;
     needed: number;
     picked: number;
   }[];
@@ -188,12 +190,28 @@ export interface PickUndo {
 
 export interface RecentActivity {
   id: string;
-  type: 'pick' | 'pick_undo' | 'order_created' | 'order_completed';
+  type: 'pick' | 'pick_undo' | 'order_created' | 'order_completed' | 'part_added' | 'part_removed' | 'order_imported';
   message: string;
   timestamp: string;
   user?: string;
   order_id?: string;
   so_number?: string;
+}
+
+// Activity Log (database table)
+
+export type ActivityLogType = 'part_added' | 'part_removed' | 'order_imported';
+
+export interface ActivityLogEntry {
+  id: string;
+  type: ActivityLogType;
+  order_id: string;
+  so_number: string;
+  part_number: string | null;
+  description: string | null;
+  performed_by: string | null;
+  details: Record<string, unknown> | null;
+  created_at: string;
 }
 
 // User settings
@@ -232,6 +250,7 @@ export interface BOMTemplateItem {
   description: string | null;
   location: string | null;
   qty_per_unit: number;
+  assembly_group: string | null;
 }
 
 export interface BOMTemplateWithItems extends BOMTemplate {

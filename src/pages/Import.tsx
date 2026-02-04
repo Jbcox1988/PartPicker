@@ -14,6 +14,8 @@ import { downloadImportTemplate } from '@/lib/excelTemplate';
 import { useOrders } from '@/hooks/useOrders';
 import { usePartsCatalog } from '@/hooks/usePartsCatalog';
 import { useBOMTemplates } from '@/hooks/useBOMTemplates';
+import { useActivityLog } from '@/hooks/useActivityLog';
+import { useSettings } from '@/hooks/useSettings';
 import { DuplicatePartsDialog } from '@/components/dialogs/DuplicatePartsDialog';
 import { TemplateSelectDialog } from '@/components/dialogs/TemplateSelectDialog';
 import type { ImportedOrder, PartConflict, BOMTemplateWithItems } from '@/types';
@@ -39,7 +41,9 @@ export function Import() {
   const [showConflictDialog, setShowConflictDialog] = useState(false);
   const [saveToCatalog, setSaveToCatalog] = useState(true);
   const [showTemplateDialog, setShowTemplateDialog] = useState(false);
-  const { templates } = useBOMTemplates();
+  const { templates, autoExtractTemplate } = useBOMTemplates();
+  const { logActivity } = useActivityLog();
+  const { getUserName } = useSettings();
 
   // Multi-BOM state
   const [bomFiles, setBomFiles] = useState<{ file: File; toolModel: string; toolNumber: string }[]>([]);
@@ -147,6 +151,26 @@ export function Import() {
     setIsImporting(false);
 
     if (result) {
+      const partCount = parseResult.order.line_items.length;
+      const toolCount = parseResult.order.tools.length;
+      const toolNumbers = parseResult.order.tools.map(t => t.tool_number);
+      logActivity({
+        type: 'order_imported',
+        order_id: result.id,
+        so_number: parseResult.order.so_number,
+        description: `Order SO-${parseResult.order.so_number} imported with ${partCount} parts and ${toolCount} tools`,
+        performed_by: getUserName(),
+        details: {
+          part_count: partCount,
+          tool_count: toolCount,
+          tool_numbers: toolNumbers,
+        },
+      });
+
+      // Auto-extract template
+      const toolModel = parseResult.order.tools[0]?.tool_model || null;
+      await autoExtractTemplate(parseResult.order.line_items, toolModel, parseResult.order.so_number);
+
       navigate(`/orders/${result.id}`);
     }
   };
@@ -349,6 +373,26 @@ export function Import() {
     setIsImporting(false);
 
     if (result) {
+      const partCount = bomParseResult.order.line_items.length;
+      const toolCount = bomParseResult.order.tools.length;
+      const toolNumbers = bomParseResult.order.tools.map(t => t.tool_number);
+      logActivity({
+        type: 'order_imported',
+        order_id: result.id,
+        so_number: bomParseResult.order.so_number,
+        description: `Order SO-${bomParseResult.order.so_number} imported with ${partCount} parts and ${toolCount} tools`,
+        performed_by: getUserName(),
+        details: {
+          part_count: partCount,
+          tool_count: toolCount,
+          tool_numbers: toolNumbers,
+        },
+      });
+
+      // Auto-extract template
+      const toolModel = bomParseResult.order.tools[0]?.tool_model || null;
+      await autoExtractTemplate(bomParseResult.order.line_items, toolModel, bomParseResult.order.so_number);
+
       navigate(`/orders/${result.id}`);
     }
   };
@@ -537,12 +581,18 @@ export function Import() {
                   <h3 className="font-medium mb-2">
                     Line Items ({parseResult.order.line_items.length})
                   </h3>
+                  {(() => {
+                    const hasAssemblyGroup = parseResult.order.line_items.some(item => item.assembly_group);
+                    return (
                   <div className="max-h-64 overflow-auto border rounded-lg">
                     <table className="w-full text-sm min-w-[500px]">
                       <thead className="bg-muted sticky top-0">
                         <tr>
                           <th className="text-left p-2 whitespace-nowrap">Part Number</th>
                           <th className="text-left p-2">Description</th>
+                          {hasAssemblyGroup && (
+                            <th className="text-left p-2 whitespace-nowrap">Assembly</th>
+                          )}
                           <th className="text-left p-2 whitespace-nowrap">Location</th>
                           <th className="text-center p-2 whitespace-nowrap">Qty/Unit</th>
                           <th className="text-center p-2 whitespace-nowrap">Total</th>
@@ -555,6 +605,11 @@ export function Import() {
                             <td className="p-2 text-muted-foreground max-w-[200px] truncate">
                               {item.description || '-'}
                             </td>
+                            {hasAssemblyGroup && (
+                              <td className="p-2 whitespace-nowrap text-xs text-muted-foreground font-mono">
+                                {item.assembly_group || '-'}
+                              </td>
+                            )}
                             <td className="p-2 whitespace-nowrap">{item.location || '-'}</td>
                             <td className="p-2 text-center">{item.qty_per_unit}</td>
                             <td className="p-2 text-center">{item.total_qty_needed}</td>
@@ -568,6 +623,8 @@ export function Import() {
                       </p>
                     )}
                   </div>
+                    );
+                  })()}
                   <p className="text-xs text-muted-foreground mt-1 sm:hidden">
                     ← Scroll horizontally to see all columns →
                   </p>
@@ -619,13 +676,19 @@ export function Import() {
                   <Download className="mr-2 h-4 w-4" />
                   Single Tool Type
                 </Button>
+                <Button variant="outline" onClick={() => downloadImportTemplate('single-bom')}>
+                  <Download className="mr-2 h-4 w-4" />
+                  Single Tool Type (BOM)
+                </Button>
                 <Button variant="outline" onClick={() => downloadImportTemplate('multi')}>
                   <Download className="mr-2 h-4 w-4" />
                   Multiple Tool Types
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground mt-3">
-                <strong>Single Tool Type:</strong> All tools share the same parts list (e.g., 5x identical 230Q units).
+                <strong>Single Tool Type:</strong> All tools share the same flat parts list (e.g., 5x identical 230Q units).
+                <br />
+                <strong>Single Tool Type (BOM):</strong> Same as above but with a Level column for hierarchical BOMs. Only leaf parts are imported.
                 <br />
                 <strong>Multiple Tool Types:</strong> Different tools have different BOMs (e.g., 2x 230Q + 1x 450Q).
               </p>
@@ -650,6 +713,14 @@ export function Import() {
                 <p className="text-muted-foreground">
                   "Order Info" sheet for header info, then separate sheets for each tool type (e.g., "230Q", "450Q").
                   Each tool type sheet has its own parts list with a Qty column for number of tools of that type.
+                </p>
+              </div>
+              <div>
+                <h4 className="font-medium mb-1">BOM Hierarchy (Level Column)</h4>
+                <p className="text-muted-foreground">
+                  Any format above can include an optional "Level" column to define assembly hierarchies.
+                  When present, only leaf parts are imported, quantities are multiplied through the parent chain,
+                  and the top-level assembly becomes the grouping label.
                 </p>
               </div>
               <div>

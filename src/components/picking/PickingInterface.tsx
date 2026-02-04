@@ -70,6 +70,7 @@ interface PickingInterfaceProps {
     pickedBy?: string,
     notes?: string
   ) => Promise<boolean>;
+  onDeleteLineItem?: (lineItemId: string) => Promise<boolean>;
   toolFilter?: string; // 'all' or specific tool ID to filter by
 }
 
@@ -181,6 +182,7 @@ export function PickingInterface({
   onReportIssue,
   hasOpenIssue,
   onBatchUpdateAllocations,
+  onDeleteLineItem,
   toolFilter = 'all',
 }: PickingInterfaceProps) {
   void _picks;
@@ -227,6 +229,7 @@ export function PickingInterface({
   const [deleteConfirmPick, setDeleteConfirmPick] = useState<Pick | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [overPickWarning, setOverPickWarning] = useState<string | null>(null);
+  const [deleteConfirmLineItem, setDeleteConfirmLineItem] = useState<LineItem | null>(null);
   const [undoToolConfirm, setUndoToolConfirm] = useState<{
     lineItem: LineItem;
     toolId: string;
@@ -1046,6 +1049,28 @@ export function PickingInterface({
                 <AlertTriangle className="h-4 w-4" />
               </Button>
             )}
+
+            {/* Remove Part button */}
+            {onDeleteLineItem && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-950"
+                onClick={() => {
+                  const totalPicks = totalPicksMap.get(item.id);
+                  if (totalPicks && totalPicks.totalPicked > 0) {
+                    setOverPickWarning('Cannot remove part with existing picks. Undo all picks first.');
+                    setTimeout(() => setOverPickWarning(null), 5000);
+                    return;
+                  }
+                  setDeleteConfirmLineItem(item);
+                }}
+                disabled={isSubmitting === item.id}
+                title="Remove part from order"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            )}
           </div>
         </div>
 
@@ -1361,6 +1386,31 @@ export function PickingInterface({
                   )}
                 </>
               )}
+            </div>
+          )}
+
+          {/* Remove Part button - mobile */}
+          {onDeleteLineItem && (
+            <div className="flex justify-end mt-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-950"
+                onClick={() => {
+                  const totalPicks = totalPicksMap.get(item.id);
+                  if (totalPicks && totalPicks.totalPicked > 0) {
+                    setOverPickWarning('Cannot remove part with existing picks. Undo all picks first.');
+                    setTimeout(() => setOverPickWarning(null), 5000);
+                    return;
+                  }
+                  setDeleteConfirmLineItem(item);
+                }}
+                disabled={isSubmitting === item.id}
+                title="Remove part from order"
+              >
+                <Trash2 className="h-4 w-4 mr-1" />
+                <span className="text-xs">Remove</span>
+              </Button>
             </div>
           )}
 
@@ -1937,6 +1987,61 @@ export function PickingInterface({
         availableStock={distributeItem?.qty_available ?? 0}
         onSave={handleDistributeSave}
       />
+
+      {/* Remove Part Confirmation Dialog */}
+      <Dialog
+        open={deleteConfirmLineItem !== null}
+        onOpenChange={(open) => !open && setDeleteConfirmLineItem(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove Part from Order</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to remove <strong>{deleteConfirmLineItem?.part_number}</strong> from this order? This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          {deleteConfirmLineItem && (
+            <div className="py-4">
+              <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 space-y-2">
+                <div className="font-medium font-mono">{deleteConfirmLineItem.part_number}</div>
+                {deleteConfirmLineItem.description && (
+                  <div className="text-sm text-muted-foreground">{deleteConfirmLineItem.description}</div>
+                )}
+                {deleteConfirmLineItem.location && (
+                  <div className="text-sm text-muted-foreground">
+                    <span className="font-medium">Location:</span> {deleteConfirmLineItem.location}
+                  </div>
+                )}
+                <div className="text-sm text-muted-foreground">
+                  <span className="font-medium">Qty needed:</span> {deleteConfirmLineItem.total_qty_needed}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirmLineItem(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                if (!deleteConfirmLineItem || !onDeleteLineItem) return;
+                setIsDeleting(true);
+                const success = await onDeleteLineItem(deleteConfirmLineItem.id);
+                setIsDeleting(false);
+                if (success) {
+                  setDeleteConfirmLineItem(null);
+                }
+              }}
+              disabled={isDeleting}
+            >
+              {isDeleting ? 'Removing...' : 'Remove'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

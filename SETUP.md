@@ -133,6 +133,44 @@ CREATE INDEX IF NOT EXISTS idx_pick_undos_undone_at ON pick_undos(undone_at);
 CREATE INDEX IF NOT EXISTS idx_pick_undos_line_item_id ON pick_undos(line_item_id);
 ```
 
+## Inventory API Views
+
+After setting up the base schema, apply the inventory API migration to add server-side aggregation views used by the Edge Function:
+
+```bash
+supabase db push
+```
+
+Or run the SQL manually from `supabase/migrations/20260204000000_add_inventory_api_views.sql`. This creates:
+- `line_item_pick_totals` view — per-line-item pick totals
+- `pick_details` view — denormalized pick context
+- `consolidated_remaining` view — per-part remaining with qty_to_order
+- `completed_order_summaries` view — completed order stats
+- `get_consolidated_parts()` function — with optional `include_fully_picked` flag
+
+## Edge Function Setup (Inventory API)
+
+The `inventory-api` Edge Function provides a REST API for querying pick/inventory data from external systems.
+
+1. **Set API key secret**
+   ```bash
+   supabase secrets set INVENTORY_API_KEY=$(openssl rand -hex 32)
+   ```
+   Save this key — the inventory site will use it to authenticate requests.
+
+2. **Deploy the function**
+   ```bash
+   supabase functions deploy inventory-api
+   ```
+
+3. **Test**
+   ```bash
+   curl "https://<your-project>.supabase.co/functions/v1/inventory-api?endpoint=remaining" \
+     -H "Authorization: Bearer <your-api-key>"
+   ```
+
+Available endpoints: `remaining`, `picks-by-order`, `completed-orders`, `comprehensive`. See CLAUDE.md for full documentation.
+
 ## Features
 
 - **Dashboard**: Overview of active orders, picking progress, and recent activity

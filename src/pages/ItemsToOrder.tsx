@@ -14,6 +14,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { SearchInput } from '@/components/common/SearchInput';
 import { OrderFilterPopover } from '@/components/common/OrderFilterPopover';
+import { AssemblyFilterPopover } from '@/components/common/AssemblyFilterPopover';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -38,6 +39,7 @@ export function ItemsToOrder() {
   });
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
   const [selectedLocations, setSelectedLocations] = useState<Set<string>>(new Set());
+  const [selectedAssemblies, setSelectedAssemblies] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState<'need-to-order' | 'on-order'>('need-to-order');
 
   // Persist sort preference
@@ -68,11 +70,41 @@ export function ItemsToOrder() {
     return Array.from(locs).sort((a, b) => alphanumericCompare(a, b));
   }, [currentItems]);
 
-  const hasActiveFilters = selectedOrders.size > 0 || selectedLocations.size > 0;
+  // Compute unique assemblies for filter dropdown
+  const uniqueAssemblies = useMemo(() => {
+    const models = new Set<string>();
+    currentItems.forEach(item => {
+      item.orders.forEach(o => {
+        if (o.tool_model) models.add(o.tool_model);
+      });
+    });
+    return Array.from(models).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [currentItems]);
+
+  const toggleAssembly = (model: string) => {
+    const newSelected = new Set(selectedAssemblies);
+    if (newSelected.has(model)) {
+      newSelected.delete(model);
+    } else {
+      newSelected.add(model);
+    }
+    setSelectedAssemblies(newSelected);
+  };
+
+  const selectAllAssemblies = () => {
+    setSelectedAssemblies(new Set(uniqueAssemblies));
+  };
+
+  const deselectAllAssemblies = () => {
+    setSelectedAssemblies(new Set());
+  };
+
+  const hasActiveFilters = selectedOrders.size > 0 || selectedLocations.size > 0 || selectedAssemblies.size > 0;
 
   const clearFilters = () => {
     setSelectedOrders(new Set());
     setSelectedLocations(new Set());
+    setSelectedAssemblies(new Set());
   };
 
   const toggleOrder = (orderId: string) => {
@@ -123,7 +155,10 @@ export function ItemsToOrder() {
     const matchesLocation = selectedLocations.size === 0
       || (item.location && selectedLocations.has(item.location));
 
-    return matchesSearch && matchesOrder && matchesLocation;
+    const matchesAssembly = selectedAssemblies.size === 0
+      || item.orders.some(o => !!o.tool_model && selectedAssemblies.has(o.tool_model));
+
+    return matchesSearch && matchesOrder && matchesLocation && matchesAssembly;
   });
 
   // Sort filtered items
@@ -371,6 +406,14 @@ export function ItemsToOrder() {
                       </div>
                     </PopoverContent>
                   </Popover>
+
+                  <AssemblyFilterPopover
+                    assemblies={uniqueAssemblies}
+                    selectedAssemblies={selectedAssemblies}
+                    onToggleAssembly={toggleAssembly}
+                    onSelectAll={selectAllAssemblies}
+                    onDeselectAll={deselectAllAssemblies}
+                  />
 
                   {hasActiveFilters && (
                     <Button

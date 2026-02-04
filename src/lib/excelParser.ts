@@ -1,5 +1,7 @@
 import * as XLSX from 'xlsx';
 import type { ImportedOrder, ImportedTool, ImportedLineItem } from '@/types';
+import { resolveHierarchyLeaves } from './hierarchyUtils';
+import type { HierarchyRow } from './hierarchyUtils';
 
 export interface ParseResult {
   success: boolean;
@@ -33,8 +35,121 @@ interface ColumnMapping {
   location: number;
   qtyPerUnit: number;
   totalQty: number;
+  level: number;
   // Tool-specific quantity columns (tool number -> column index)
   toolColumns: Map<string, number>;
+}
+
+// Raw row accumulated before hierarchy processing
+interface RawRow {
+  partNumber: string;
+  description: string;
+  location: string;
+  level: number | null; // null when no Level column
+  qtyPerUnit: number;
+  totalQty: number;
+}
+
+/**
+ * If any rows have a valid level value, resolve the hierarchy into leaf parts.
+ * Otherwise return flat ImportedLineItem[] as before.
+ *
+ * When hierarchy is detected:
+ * - Only leaf parts (no deeper children) are returned
+ * - Quantities are multiplied through the parent chain
+ * - assembly_group is set from the top-level (level 1) ancestor
+ * - Duplicate leaf part numbers across assemblies are summed
+ */
+function applyHierarchy(
+  rawRows: RawRow[],
+  toolCount: number
+): ImportedLineItem[] {
+  const hasHierarchy = rawRows.some(r => r.level !== null);
+
+  if (!hasHierarchy) {
+    // No Level column - return flat list as before
+    return rawRows
+      .filter(r => r.qtyPerUnit > 0 || r.totalQty > 0)
+      .map(r => ({
+        part_number: r.partNumber,
+        description: r.description || undefined,
+        location: r.location || undefined,
+        qty_per_unit: r.qtyPerUnit || 1,
+        total_qty_needed: r.totalQty || r.qtyPerUnit,
+      }));
+  }
+
+  // Build hierarchy rows (skip rows with invalid/missing level)
+  const hierarchyRows: HierarchyRow[] = [];
+  const locationByPartNumber = new Map<string, string>();
+
+  for (const r of rawRows) {
+    if (r.level === null) continue; // skip rows with non-numeric level
+
+    hierarchyRows.push({
+      level: r.level,
+      partNumber: r.partNumber,
+      qty: r.qtyPerUnit || 1,
+      description: r.description,
+    });
+
+    // Track location from the original row
+    if (r.location) {
+      locationByPartNumber.set(r.partNumber, r.location);
+    }
+  }
+
+  if (hierarchyRows.length === 0) {
+    // All level values were invalid - fall back to flat
+    return rawRows
+      .filter(r => r.qtyPerUnit > 0 || r.totalQty > 0)
+      .map(r => ({
+        part_number: r.partNumber,
+        description: r.description || undefined,
+        location: r.location || undefined,
+        qty_per_unit: r.qtyPerUnit || 1,
+        total_qty_needed: r.totalQty || r.qtyPerUnit,
+      }));
+  }
+
+  const resolvedLeaves = resolveHierarchyLeaves(hierarchyRows);
+
+  // Deduplicate: sum effective quantities for same part number across assemblies
+  const deduped = new Map<string, {
+    description: string;
+    effectiveQty: number;
+    assemblyGroup: string;
+    location: string;
+  }>();
+
+  for (const leaf of resolvedLeaves) {
+    const existing = deduped.get(leaf.partNumber);
+    if (existing) {
+      existing.effectiveQty += leaf.effectiveQty;
+      // Keep first assembly group encountered
+    } else {
+      deduped.set(leaf.partNumber, {
+        description: leaf.description,
+        effectiveQty: leaf.effectiveQty,
+        assemblyGroup: leaf.assemblyGroup,
+        location: locationByPartNumber.get(leaf.partNumber) || '',
+      });
+    }
+  }
+
+  const lineItems: ImportedLineItem[] = [];
+  for (const [partNumber, info] of deduped) {
+    lineItems.push({
+      part_number: partNumber,
+      description: info.description || undefined,
+      location: info.location || undefined,
+      qty_per_unit: info.effectiveQty,
+      total_qty_needed: info.effectiveQty * Math.max(toolCount, 1),
+      assembly_group: info.assemblyGroup || undefined,
+    });
+  }
+
+  return lineItems;
 }
 
 /**
@@ -93,8 +208,8 @@ export async function parseExcelFile(file: File): Promise<ParseResult> {
     // Extract tools from column headers
     const tools = extractTools(jsonData[headerRowIndex] as string[], mapping);
 
-    // Parse line items
-    const lineItems: ImportedLineItem[] = [];
+    // Accumulate raw rows (before hierarchy processing)
+    const rawRows: RawRow[] = [];
 
     for (let i = headerRowIndex + 1; i < jsonData.length; i++) {
       const row = jsonData[i];
@@ -122,25 +237,29 @@ export async function parseExcelFile(file: File): Promise<ParseResult> {
         ? String(row[mapping.location] || '').trim()
         : '';
 
+      // Parse level if column exists
+      let level: number | null = null;
+      if (mapping.level >= 0) {
+        const rawLevel = String(row[mapping.level] ?? '').trim();
+        if (rawLevel !== '') {
+          const levelVal = parseQty(row[mapping.level]);
+          level = levelVal >= 0 ? levelVal : null;
+        }
+      }
+
       // Get qty per unit and total qty
-      // Priority: If we have tool columns, use them as the source of truth for qty_per_unit
-      // because generic "Qty" columns often contain the TOTAL, not per-unit values
       let qtyPerUnit = 0;
       let totalQty = 0;
 
       if (mapping.toolColumns.size > 0) {
-        // We have tool-specific columns - use first tool's qty as qty per unit
         const firstToolCol = mapping.toolColumns.values().next().value;
         if (firstToolCol !== undefined) {
           qtyPerUnit = parseQty(row[firstToolCol]);
         }
-
-        // Sum all tool columns for total qty
         for (const colIdx of mapping.toolColumns.values()) {
           totalQty += parseQty(row[colIdx]);
         }
       } else {
-        // No tool columns - fall back to dedicated qty columns
         if (mapping.qtyPerUnit >= 0) {
           qtyPerUnit = parseQty(row[mapping.qtyPerUnit]);
         }
@@ -149,32 +268,29 @@ export async function parseExcelFile(file: File): Promise<ParseResult> {
         }
       }
 
-      // If we have a total qty column but no per-unit calculated yet, derive it
       if (qtyPerUnit === 0 && mapping.totalQty >= 0) {
         totalQty = parseQty(row[mapping.totalQty]);
         qtyPerUnit = Math.ceil(totalQty / Math.max(tools.length, 1));
       }
-
-      // If we still don't have totals, use qty per unit * tool count
       if (totalQty === 0 && qtyPerUnit > 0) {
         totalQty = qtyPerUnit * Math.max(tools.length, 1);
       }
-
-      // Final fallback: derive qty per unit from total if we have tools
       if (qtyPerUnit === 0 && totalQty > 0) {
         qtyPerUnit = Math.ceil(totalQty / Math.max(tools.length, 1));
       }
 
-      if (qtyPerUnit > 0 || totalQty > 0) {
-        lineItems.push({
-          part_number: partNumber,
-          description: description || undefined,
-          location: location || undefined,
-          qty_per_unit: qtyPerUnit || 1,
-          total_qty_needed: totalQty || qtyPerUnit,
-        });
-      }
+      rawRows.push({
+        partNumber,
+        description,
+        location,
+        level,
+        qtyPerUnit: qtyPerUnit || 1,
+        totalQty: totalQty || qtyPerUnit,
+      });
     }
+
+    // Apply hierarchy processing (or pass through flat if no Level column)
+    const lineItems = applyHierarchy(rawRows, tools.length);
 
     if (lineItems.length === 0) {
       return {
@@ -214,6 +330,7 @@ function detectColumns(data: unknown[][]): { headerRowIndex: number; mapping: Co
     location: -1,
     qtyPerUnit: -1,
     totalQty: -1,
+    level: -1,
     toolColumns: new Map(),
   };
 
@@ -226,6 +343,11 @@ function detectColumns(data: unknown[][]): { headerRowIndex: number; mapping: Co
 
     for (let colIdx = 0; colIdx < row.length; colIdx++) {
       const cell = String(row[colIdx] || '').toLowerCase().trim();
+
+      // Level detection (for hierarchical BOMs)
+      if (cell === 'level' || cell === 'lvl') {
+        mapping.level = colIdx;
+      }
 
       // Part number detection
       if (cell.includes('part') && (cell.includes('num') || cell.includes('#') || cell.includes('no'))) {
@@ -377,7 +499,7 @@ export async function parseCsvFile(file: File): Promise<ParseResult> {
     }
 
     const tools = extractTools(jsonData[headerRowIndex] as string[], mapping);
-    const lineItems: ImportedLineItem[] = [];
+    const rawRows: RawRow[] = [];
 
     for (let i = headerRowIndex + 1; i < jsonData.length; i++) {
       const row = jsonData[i];
@@ -394,19 +516,32 @@ export async function parseCsvFile(file: File): Promise<ParseResult> {
         ? String(row[mapping.location] || '').trim()
         : '';
 
-      let qtyPerUnit = mapping.qtyPerUnit >= 0 ? parseQty(row[mapping.qtyPerUnit]) : 1;
-      let totalQty = mapping.totalQty >= 0 ? parseQty(row[mapping.totalQty]) : qtyPerUnit;
-
-      if (qtyPerUnit > 0 || totalQty > 0) {
-        lineItems.push({
-          part_number: partNumber,
-          description: description || undefined,
-          location: location || undefined,
-          qty_per_unit: qtyPerUnit || 1,
-          total_qty_needed: totalQty || qtyPerUnit,
-        });
+      // Parse level if column exists
+      let level: number | null = null;
+      if (mapping.level >= 0) {
+        const rawLevel = String(row[mapping.level] ?? '').trim();
+        if (rawLevel !== '') {
+          const levelVal = parseQty(row[mapping.level]);
+          level = levelVal >= 0 ? levelVal : null;
+        }
       }
+
+      const qtyPerUnit = mapping.qtyPerUnit >= 0 ? parseQty(row[mapping.qtyPerUnit]) : 1;
+      const totalQty = mapping.totalQty >= 0 ? parseQty(row[mapping.totalQty]) : qtyPerUnit;
+
+      rawRows.push({
+        partNumber,
+        description,
+        location,
+        level,
+        qtyPerUnit: qtyPerUnit || 1,
+        totalQty: totalQty || qtyPerUnit,
+      });
     }
+
+    // Apply hierarchy processing (or pass through flat if no Level column)
+    const finalTools = tools.length > 0 ? tools : [{ tool_number: `${soNumber}-1` }];
+    const lineItems = applyHierarchy(rawRows, finalTools.length);
 
     if (lineItems.length === 0) {
       return {
@@ -415,8 +550,6 @@ export async function parseCsvFile(file: File): Promise<ParseResult> {
         warnings
       };
     }
-
-    const finalTools = tools.length > 0 ? tools : [{ tool_number: `${soNumber}-1` }];
 
     const order: ImportedOrder = {
       so_number: soNumber,
@@ -508,8 +641,8 @@ function parseToolTypeSheet(sheet: XLSX.WorkSheet, sheetName: string): ToolTypeS
     }
   }
 
-  // Parse line items
-  const lineItems: ImportedLineItem[] = [];
+  // Accumulate raw rows
+  const rawRows: RawRow[] = [];
 
   for (let i = headerRowIndex + 1; i < jsonData.length; i++) {
     const row = jsonData[i];
@@ -526,6 +659,13 @@ function parseToolTypeSheet(sheet: XLSX.WorkSheet, sheetName: string): ToolTypeS
       ? String(row[mapping.location] || '').trim()
       : '';
 
+    // Parse level if column exists
+    let level: number | null = null;
+    if (mapping.level >= 0) {
+      const levelVal = parseQty(row[mapping.level]);
+      level = levelVal >= 0 ? levelVal : null;
+    }
+
     let qtyPerUnit = mapping.qtyPerUnit >= 0 ? parseQty(row[mapping.qtyPerUnit]) : 1;
     let totalQty = mapping.totalQty >= 0 ? parseQty(row[mapping.totalQty]) : qtyPerUnit * toolQty;
 
@@ -533,16 +673,18 @@ function parseToolTypeSheet(sheet: XLSX.WorkSheet, sheetName: string): ToolTypeS
       qtyPerUnit = Math.ceil(totalQty / toolQty);
     }
 
-    if (qtyPerUnit > 0 || totalQty > 0) {
-      lineItems.push({
-        part_number: partNumber,
-        description: description || undefined,
-        location: location || undefined,
-        qty_per_unit: qtyPerUnit || 1,
-        total_qty_needed: totalQty || qtyPerUnit * toolQty,
-      });
-    }
+    rawRows.push({
+      partNumber,
+      description,
+      location,
+      level,
+      qtyPerUnit: qtyPerUnit || 1,
+      totalQty: totalQty || qtyPerUnit * toolQty,
+    });
   }
+
+  // Apply hierarchy processing (or pass through flat if no Level column)
+  const lineItems = applyHierarchy(rawRows, toolQty);
 
   if (lineItems.length === 0) return null;
 
@@ -629,8 +771,9 @@ export async function parseEnhancedExcelFile(file: File): Promise<ParseResult> {
         });
       }
 
-      // Parse line items
+      // Accumulate raw rows (before hierarchy processing)
       const jsonData = XLSX.utils.sheet_to_json<unknown[]>(partsSheet, { header: 1, defval: '' });
+      const rawRows: RawRow[] = [];
 
       for (let i = headerRowIndex + 1; i < jsonData.length; i++) {
         const row = jsonData[i];
@@ -641,18 +784,31 @@ export async function parseEnhancedExcelFile(file: File): Promise<ParseResult> {
 
         const description = mapping.description >= 0 ? String(row[mapping.description] || '').trim() : '';
         const location = mapping.location >= 0 ? String(row[mapping.location] || '').trim() : '';
-        let qtyPerUnit = mapping.qtyPerUnit >= 0 ? parseQty(row[mapping.qtyPerUnit]) : 1;
 
-        if (qtyPerUnit > 0) {
-          lineItems.push({
-            part_number: partNumber,
-            description: description || undefined,
-            location: location || undefined,
-            qty_per_unit: qtyPerUnit,
-            total_qty_needed: qtyPerUnit * toolQty,
-          });
+        // Parse level if column exists
+        let level: number | null = null;
+        if (mapping.level >= 0) {
+          const rawLevel = String(row[mapping.level] ?? '').trim();
+          if (rawLevel !== '') {
+            const levelVal = parseQty(row[mapping.level]);
+            level = levelVal >= 0 ? levelVal : null;
+          }
         }
+
+        const qtyPerUnit = mapping.qtyPerUnit >= 0 ? parseQty(row[mapping.qtyPerUnit]) : 1;
+
+        rawRows.push({
+          partNumber,
+          description,
+          location,
+          level,
+          qtyPerUnit: qtyPerUnit || 1,
+          totalQty: (qtyPerUnit || 1) * toolQty,
+        });
       }
+
+      // Apply hierarchy processing (or pass through flat if no Level column)
+      lineItems = applyHierarchy(rawRows, toolQty);
     } else if (otherSheets.length > 0) {
       // Format 3: Order Info + multiple tool type sheets
       let toolCounter = 1;

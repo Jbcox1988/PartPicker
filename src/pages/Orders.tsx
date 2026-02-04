@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Search, Upload, Trash2, ArrowUpDown, AlertCircle, Clock, CheckCircle2, Ban, Eye, EyeOff, Download, List } from 'lucide-react';
+import { Plus, Search, Upload, Trash2, ArrowUpDown, AlertCircle, Clock, CheckCircle2, Ban, Eye, EyeOff, Download, List, Wrench } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +17,7 @@ import { Label } from '@/components/ui/label';
 import { useOrders } from '@/hooks/useOrders';
 import { formatDate, getStatusColor, getDueDateStatus, getDueDateColors, cn } from '@/lib/utils';
 import { exportOrdersSummaryToExcel } from '@/lib/excelExport';
+import { AssemblyFilterPopover } from '@/components/common/AssemblyFilterPopover';
 import { parseISO } from 'date-fns';
 
 type SortOption = 'created' | 'due-date' | 'so-number';
@@ -27,6 +28,7 @@ export function Orders() {
   const [statusFilter, setStatusFilter] = useState<string>('active');
   const [hideCompleted, setHideCompleted] = useState(false);
   const [sortBy, setSortBy] = useState<SortOption>('due-date');
+  const [selectedAssemblies, setSelectedAssemblies] = useState<Set<string>>(new Set());
   const [showNewOrderDialog, setShowNewOrderDialog] = useState(false);
   const [newOrder, setNewOrder] = useState({
     so_number: '',
@@ -55,7 +57,10 @@ export function Orders() {
       const matchesHideCompleted =
         !hideCompleted || order.status !== 'complete';
 
-      return matchesSearch && matchesStatus && matchesHideCompleted;
+      const matchesAssembly = selectedAssemblies.size === 0 ||
+        (!!order.tool_model && selectedAssemblies.has(order.tool_model));
+
+      return matchesSearch && matchesStatus && matchesHideCompleted && matchesAssembly;
     });
 
     // Then sort
@@ -74,7 +79,7 @@ export function Orders() {
           return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       }
     });
-  }, [orders, searchQuery, statusFilter, hideCompleted, sortBy]);
+  }, [orders, searchQuery, statusFilter, hideCompleted, sortBy, selectedAssemblies]);
 
   const handleCreateOrder = async () => {
     if (!newOrder.so_number.trim()) return;
@@ -113,6 +118,32 @@ export function Orders() {
 
   const handleExportOrders = () => {
     exportOrdersSummaryToExcel(orders);
+  };
+
+  const uniqueAssemblies = useMemo(() => {
+    const models = new Set<string>();
+    orders.forEach(o => {
+      if (o.tool_model) models.add(o.tool_model);
+    });
+    return Array.from(models).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [orders]);
+
+  const toggleAssembly = (model: string) => {
+    const newSelected = new Set(selectedAssemblies);
+    if (newSelected.has(model)) {
+      newSelected.delete(model);
+    } else {
+      newSelected.add(model);
+    }
+    setSelectedAssemblies(newSelected);
+  };
+
+  const selectAllAssemblies = () => {
+    setSelectedAssemblies(new Set(uniqueAssemblies));
+  };
+
+  const deselectAllAssemblies = () => {
+    setSelectedAssemblies(new Set());
   };
 
   return (
@@ -209,6 +240,13 @@ export function Orders() {
                   <ArrowUpDown className="h-4 w-4" />
                   <span className="hidden sm:inline">{sortBy === 'due-date' ? 'Due Date' : sortBy === 'created' ? 'Created' : 'SO#'}</span>
                 </Button>
+                <AssemblyFilterPopover
+                  assemblies={uniqueAssemblies}
+                  selectedAssemblies={selectedAssemblies}
+                  onToggleAssembly={toggleAssembly}
+                  onSelectAll={selectAllAssemblies}
+                  onDeselectAll={deselectAllAssemblies}
+                />
               </div>
             </div>
           </div>

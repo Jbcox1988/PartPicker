@@ -36,6 +36,7 @@ interface PickingSectionProps {
   onReportIssue: (lineItemId: string, orderId: string, issueType: IssueType, description?: string, reportedBy?: string) => Promise<boolean>;
   hasOpenIssue: (lineItemId: string) => boolean;
   onBatchUpdateAllocations: (lineItemId: string, newAllocations: Map<string, number>, pickedBy?: string, notes?: string) => Promise<boolean>;
+  onDeleteLineItem?: (lineItemId: string) => Promise<boolean>;
 }
 
 export function PickingSection({
@@ -58,6 +59,7 @@ export function PickingSection({
   onReportIssue,
   hasOpenIssue,
   onBatchUpdateAllocations,
+  onDeleteLineItem,
 }: PickingSectionProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const debouncedSearch = useDebouncedValue(searchQuery, 300);
@@ -132,20 +134,31 @@ export function PickingSection({
               <div
                 key={tool.id}
                 className={cn(
-                  'flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium flex-shrink-0',
+                  'flex flex-col items-center px-2 py-1 rounded-full text-xs font-medium flex-shrink-0',
                   toolProgress === 100
                     ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
                     : toolProgress > 0
                       ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
                       : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
                 )}
+                title={[
+                  tool.tool_number,
+                  tool.tool_model ? `Model: ${tool.tool_model}` : null,
+                  tool.serial_number ? `SN: ${tool.serial_number}` : null,
+                  `Progress: ${toolProgress}%`,
+                ].filter(Boolean).join(' | ')}
               >
-                {tool.tool_number}
-                {toolProgress === 100 && (
-                  <CheckCircle2 className="h-3 w-3" />
-                )}
-                {toolProgress > 0 && toolProgress < 100 && (
-                  <span>{toolProgress}%</span>
+                <span className="flex items-center gap-1">
+                  {tool.tool_number}
+                  {toolProgress === 100 && (
+                    <CheckCircle2 className="h-3 w-3" />
+                  )}
+                  {toolProgress > 0 && toolProgress < 100 && (
+                    <span>{toolProgress}%</span>
+                  )}
+                </span>
+                {tool.tool_model && (
+                  <span className="text-[0.6rem] leading-none opacity-75">{tool.tool_model}</span>
                 )}
               </div>
             );
@@ -175,7 +188,7 @@ export function PickingSection({
                 <SelectItem value="all">All Tools</SelectItem>
                 {tools.map((tool) => (
                   <SelectItem key={tool.id} value={tool.id}>
-                    {tool.tool_number}
+                    {tool.tool_number}{tool.tool_model ? ` [${tool.tool_model}]` : ''}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -221,6 +234,7 @@ export function PickingSection({
             onReportIssue={onReportIssue}
             hasOpenIssue={hasOpenIssue}
             onBatchUpdateAllocations={onBatchUpdateAllocations}
+            onDeleteLineItem={onDeleteLineItem}
             toolFilter={toolFilter}
           />
         </CardContent>

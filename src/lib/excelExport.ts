@@ -351,7 +351,16 @@ export interface PickUndoHistoryItem {
   so_number: string;
 }
 
-export function exportPickHistoryToExcel(picks: PickHistoryItem[], title?: string, undos?: PickUndoHistoryItem[]) {
+export interface ActivityLogExportItem {
+  created_at: string;
+  type: string;
+  performed_by: string | null;
+  so_number: string;
+  part_number: string | null;
+  description: string | null;
+}
+
+export function exportPickHistoryToExcel(picks: PickHistoryItem[], title?: string, undos?: PickUndoHistoryItem[], activityLogs?: ActivityLogExportItem[]) {
   const workbook = XLSX.utils.book_new();
 
   // Pick History Sheet
@@ -448,12 +457,41 @@ export function exportPickHistoryToExcel(picks: PickHistoryItem[], title?: strin
     XLSX.utils.book_append_sheet(workbook, undoSheet, 'Undo History');
   }
 
+  // Activity Log Sheet (if activity logs provided)
+  if (activityLogs && activityLogs.length > 0) {
+    const activityHeader = [
+      'Timestamp',
+      'Type',
+      'Performed By',
+      'SO Number',
+      'Part Number',
+      'Description',
+    ];
+
+    const activityData = activityLogs.map(log => [
+      formatTimestamp(log.created_at),
+      log.type === 'part_added' ? 'Part Added'
+        : log.type === 'part_removed' ? 'Part Removed'
+        : log.type === 'order_imported' ? 'Order Imported'
+        : log.type,
+      log.performed_by || '',
+      `SO-${log.so_number}`,
+      log.part_number || '',
+      log.description || '',
+    ]);
+
+    const activitySheet = XLSX.utils.aoa_to_sheet([activityHeader, ...activityData]);
+    setColumnWidths(activitySheet, [20, 15, 20, 15, 20, 50]);
+    XLSX.utils.book_append_sheet(workbook, activitySheet, 'Activity Log');
+  }
+
   // Summary Sheet
   const totalPicks = picks.length;
   const totalQty = picks.reduce((sum, p) => sum + p.qty_picked, 0);
   const uniqueUsers = new Set(picks.map(p => p.picked_by || 'Unknown')).size;
   const uniqueParts = new Set(picks.map(p => p.part_number)).size;
   const totalUndos = undos?.length || 0;
+  const totalActivityLogs = activityLogs?.length || 0;
 
   const summaryData = [
     [title || 'Pick History Report'],
@@ -463,6 +501,7 @@ export function exportPickHistoryToExcel(picks: PickHistoryItem[], title?: strin
     ['Unique Users', uniqueUsers],
     ['Unique Parts', uniqueParts],
     ['Total Undo Records', totalUndos],
+    ['Total Activity Log Records', totalActivityLogs],
     [],
     ['Export Date', formatTimestamp(new Date().toISOString())],
   ];

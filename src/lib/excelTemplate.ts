@@ -3,14 +3,14 @@ import * as XLSX from 'xlsx';
 /**
  * Generate and download an Excel template for importing orders
  */
-export function downloadImportTemplate(format: 'single' | 'multi' = 'single') {
+export function downloadImportTemplate(format: 'single' | 'multi' | 'single-bom' = 'single') {
   const workbook = XLSX.utils.book_new();
 
   if (format === 'single') {
-    // Single tool type format
     createSingleToolTypeTemplate(workbook);
+  } else if (format === 'single-bom') {
+    createSingleBomTemplate(workbook);
   } else {
-    // Multiple tool types format
     createMultiToolTypeTemplate(workbook);
   }
 
@@ -18,9 +18,10 @@ export function downloadImportTemplate(format: 'single' | 'multi' = 'single') {
   createInstructionsSheet(workbook);
 
   // Download
-  const filename = format === 'single'
-    ? 'order-template-single.xlsx'
-    : 'order-template-multi.xlsx';
+  let filename: string;
+  if (format === 'single') filename = 'order-template-single.xlsx';
+  else if (format === 'single-bom') filename = 'order-template-bom.xlsx';
+  else filename = 'order-template-multi.xlsx';
   XLSX.writeFile(workbook, filename);
 }
 
@@ -55,6 +56,49 @@ function createSingleToolTypeTemplate(workbook: XLSX.WorkBook) {
   partsSheet['!cols'] = [
     { wch: 15 }, // Part Number
     { wch: 30 }, // Description
+    { wch: 12 }, // Location
+    { wch: 10 }, // Qty/Unit
+  ];
+
+  XLSX.utils.book_append_sheet(workbook, partsSheet, 'Parts');
+}
+
+function createSingleBomTemplate(workbook: XLSX.WorkBook) {
+  // Order Info sheet (same as single)
+  const orderInfoData = [
+    ['Order Information', ''],
+    ['', ''],
+    ['SO Number', '3137'],
+    ['PO Number', 'PO-12345'],
+    ['Customer', 'ACME Corporation'],
+    ['Tool Qty', '5'],
+    ['Tool Model', '230Q'],
+    ['Order Date', '2024-01-15'],
+    ['Due Date', '2024-02-15'],
+  ];
+  const orderInfoSheet = XLSX.utils.aoa_to_sheet(orderInfoData);
+  XLSX.utils.book_append_sheet(workbook, orderInfoSheet, 'Order Info');
+
+  // Parts sheet with Level column
+  const partsData = [
+    ['Level', 'Part Number', 'Description', 'Location', 'Qty/Unit'],
+    [0, '230Q-TOOL', '230Q Complete Tool Assembly', '', 1],
+    [1, 'FRAME-ASY', 'Frame Sub-Assembly', '', 1],
+    [2, 'ABC-123', 'Frame Plate', 'A-01', 2],
+    [2, 'DEF-456', 'Frame Bracket', 'B-02', 4],
+    [2, 'GHI-789', 'Frame Bolt Kit', 'C-03', 8],
+    [1, 'MOTOR-ASY', 'Motor Sub-Assembly', '', 1],
+    [2, 'JKL-012', 'Motor Unit', 'A-05', 1],
+    [2, 'MNO-345', 'Motor Mount', 'D-01', 2],
+    [2, 'PQR-678', 'Wiring Harness', 'D-03', 1],
+    [1, 'STU-901', 'Seal Ring (standalone leaf)', 'E-02', 3],
+  ];
+  const partsSheet = XLSX.utils.aoa_to_sheet(partsData);
+
+  partsSheet['!cols'] = [
+    { wch: 6 },  // Level
+    { wch: 18 }, // Part Number
+    { wch: 35 }, // Description
     { wch: 12 }, // Location
     { wch: 10 }, // Qty/Unit
   ];
@@ -156,6 +200,29 @@ function createInstructionsSheet(workbook: XLSX.WorkBook) {
     [''],
     ['Example: Sheet "230Q" with Qty=2 creates tools 3137-1 and 3137-2'],
     ['         Sheet "450Q" with Qty=1 creates tool 3137-3'],
+    [''],
+    [''],
+    ['SINGLE TOOL TYPE WITH BOM HIERARCHY'],
+    ['===================================='],
+    ['Use this format when your parts list is a multi-level BOM (bill of materials).'],
+    ['The importer will extract only leaf parts and multiply quantities through the hierarchy.'],
+    [''],
+    ['Order Info Sheet:'],
+    ['- Same as the single tool type format above'],
+    [''],
+    ['Parts Sheet:'],
+    ['- Level: Hierarchy depth (0 = root, 1 = top assembly, 2+ = sub-parts) (required for BOM)'],
+    ['- Part Number: Part number (required)'],
+    ['- Description: Part description (optional)'],
+    ['- Location: Bin/location code (optional)'],
+    ['- Qty/Unit: Quantity per parent assembly (required)'],
+    [''],
+    ['How it works:'],
+    ['- Only LEAF parts (parts with no children) are imported for picking'],
+    ['- Quantities are MULTIPLIED through the hierarchy'],
+    ['  Example: Assembly qty 2 x Child qty 3 = 6 effective parts to pick'],
+    ['- The top-level assembly (level 1) becomes the "Assembly Group" label'],
+    ['- The Level column is optional: if omitted, the sheet works as a flat parts list'],
     [''],
     [''],
     ['LEGACY FORMAT'],

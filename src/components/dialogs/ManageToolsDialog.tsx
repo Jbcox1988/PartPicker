@@ -29,7 +29,8 @@ interface ManageToolsDialogProps {
   onOpenChange: (open: boolean) => void;
   tools: Tool[];
   soNumber: string;
-  onAddTool: (toolNumber: string, serialNumber?: string) => Promise<Tool | null>;
+  defaultToolModel?: string | null;
+  onAddTool: (toolNumber: string, serialNumber?: string, toolModel?: string) => Promise<Tool | null>;
   onDeleteTool: (toolId: string) => Promise<boolean>;
   getToolPickCount: (toolId: string) => number;
   generateNextToolNumber: () => string;
@@ -40,13 +41,14 @@ export function ManageToolsDialog({
   onOpenChange,
   tools,
   soNumber,
+  defaultToolModel,
   onAddTool,
   onDeleteTool,
   getToolPickCount,
   generateNextToolNumber,
 }: ManageToolsDialogProps) {
   const [isAdding, setIsAdding] = useState(false);
-  const [addForm, setAddForm] = useState({ tool_number: '', serial_number: '' });
+  const [addForm, setAddForm] = useState({ tool_number: '', serial_number: '', tool_model: '' });
   const [isAddingTool, setIsAddingTool] = useState(false);
   const [toolToDelete, setToolToDelete] = useState<Tool | null>(null);
   const [isDeletingTool, setIsDeletingTool] = useState(false);
@@ -55,28 +57,31 @@ export function ManageToolsDialog({
     setAddForm({
       tool_number: generateNextToolNumber(),
       serial_number: '',
+      tool_model: defaultToolModel || '',
     });
     setIsAdding(true);
   };
 
   const handleCancelAdding = () => {
     setIsAdding(false);
-    setAddForm({ tool_number: '', serial_number: '' });
+    setAddForm({ tool_number: '', serial_number: '', tool_model: '' });
   };
 
   const handleAddTool = async () => {
     if (!addForm.tool_number.trim()) return;
 
     setIsAddingTool(true);
+    const toolModel = addForm.tool_model.trim() || defaultToolModel || undefined;
     const result = await onAddTool(
       addForm.tool_number.trim(),
-      addForm.serial_number.trim() || undefined
+      addForm.serial_number.trim() || undefined,
+      toolModel
     );
     setIsAddingTool(false);
 
     if (result) {
       setIsAdding(false);
-      setAddForm({ tool_number: '', serial_number: '' });
+      setAddForm({ tool_number: '', serial_number: '', tool_model: '' });
     }
   };
 
@@ -124,6 +129,11 @@ export function ManageToolsDialog({
                           <Badge variant="outline" className="font-mono">
                             {tool.tool_number}
                           </Badge>
+                          {tool.tool_model && (
+                            <Badge variant="secondary" className="text-xs">
+                              {tool.tool_model}
+                            </Badge>
+                          )}
                           {tool.serial_number && (
                             <span className="text-sm text-muted-foreground">
                               SN: {tool.serial_number}
@@ -162,6 +172,15 @@ export function ManageToolsDialog({
                       value={addForm.tool_number}
                       onChange={(e) => setAddForm({ ...addForm, tool_number: e.target.value })}
                       placeholder={`e.g., ${soNumber}-1`}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="new_tool_model" className="text-xs">Tool Model</Label>
+                    <Input
+                      id="new_tool_model"
+                      value={addForm.tool_model}
+                      onChange={(e) => setAddForm({ ...addForm, tool_model: e.target.value })}
+                      placeholder={defaultToolModel || 'Enter tool model'}
                     />
                   </div>
                   <div className="space-y-1">

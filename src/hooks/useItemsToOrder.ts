@@ -35,6 +35,7 @@ export function useItemsToOrder() {
             orders!inner (
               id,
               so_number,
+              tool_model,
               status
             )
           `)
@@ -92,6 +93,7 @@ export function useItemsToOrder() {
           existing.orders.push({
             order_id: item.order_id,
             so_number: orderInfo.so_number,
+            tool_model: orderInfo.tool_model || null,
             needed: item.total_qty_needed,
             picked: picked,
           });
@@ -111,6 +113,7 @@ export function useItemsToOrder() {
             orders: [{
               order_id: item.order_id,
               so_number: orderInfo.so_number,
+              tool_model: orderInfo.tool_model || null,
               needed: item.total_qty_needed,
               picked: picked,
             }],

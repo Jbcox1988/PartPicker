@@ -4,6 +4,7 @@ import { Package, ChevronDown, ChevronRight, MapPin, ArrowUpDown, X, Download, C
 import { Card, CardContent } from '@/components/ui/card';
 import { SearchInput } from '@/components/common/SearchInput';
 import { OrderFilterPopover } from '@/components/common/OrderFilterPopover';
+import { AssemblyFilterPopover } from '@/components/common/AssemblyFilterPopover';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
@@ -286,6 +287,7 @@ export function ConsolidatedParts() {
     return (saved as SortMode) || 'part_number';
   });
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
+  const [selectedAssemblies, setSelectedAssemblies] = useState<Set<string>>(new Set());
 
   // Read URL search parameter on mount
   useEffect(() => {
@@ -353,10 +355,40 @@ export function ConsolidatedParts() {
       .sort((a, b) => a.so_number.localeCompare(b.so_number, undefined, { numeric: true }));
   }, [parts]);
 
-  const hasActiveFilters = selectedOrders.size > 0;
+  // Compute unique assemblies for filter dropdown
+  const uniqueAssemblies = useMemo(() => {
+    const models = new Set<string>();
+    parts.forEach(p => {
+      p.orders.forEach(o => {
+        if (o.tool_model) models.add(o.tool_model);
+      });
+    });
+    return Array.from(models).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [parts]);
+
+  const toggleAssembly = (model: string) => {
+    const newSelected = new Set(selectedAssemblies);
+    if (newSelected.has(model)) {
+      newSelected.delete(model);
+    } else {
+      newSelected.add(model);
+    }
+    setSelectedAssemblies(newSelected);
+  };
+
+  const selectAllAssemblies = () => {
+    setSelectedAssemblies(new Set(uniqueAssemblies));
+  };
+
+  const deselectAllAssemblies = () => {
+    setSelectedAssemblies(new Set());
+  };
+
+  const hasActiveFilters = selectedOrders.size > 0 || selectedAssemblies.size > 0;
 
   const clearFilters = () => {
     setSelectedOrders(new Set());
+    setSelectedAssemblies(new Set());
   };
 
   const toggleOrder = (orderId: string) => {
@@ -390,7 +422,10 @@ export function ConsolidatedParts() {
 
     const matchesStock = !hideOutOfStock || (part.qty_available !== null && part.qty_available !== 0);
 
-    return matchesSearch && matchesCompleted && matchesOrder && matchesStock;
+    const matchesAssembly = selectedAssemblies.size === 0
+      || part.orders.some(o => !!o.tool_model && selectedAssemblies.has(o.tool_model));
+
+    return matchesSearch && matchesCompleted && matchesOrder && matchesStock && matchesAssembly;
   });
 
   // Sort and group filtered parts
@@ -587,6 +622,14 @@ export function ConsolidatedParts() {
                   onToggleOrder={toggleOrder}
                   onSelectAll={selectAllOrders}
                   onDeselectAll={deselectAllOrders}
+                />
+
+                <AssemblyFilterPopover
+                  assemblies={uniqueAssemblies}
+                  selectedAssemblies={selectedAssemblies}
+                  onToggleAssembly={toggleAssembly}
+                  onSelectAll={selectAllAssemblies}
+                  onDeselectAll={deselectAllAssemblies}
                 />
 
                 {hasActiveFilters && (

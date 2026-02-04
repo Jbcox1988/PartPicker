@@ -347,7 +347,7 @@ export function useOrder(orderId: string | undefined) {
     return `${soNumber}-${nextSuffix}`;
   }, []);
 
-  const addTool = async (toolNumber: string, serialNumber?: string): Promise<Tool | null> => {
+  const addTool = async (toolNumber: string, serialNumber?: string, toolModel?: string): Promise<Tool | null> => {
     if (!orderId) return null;
 
     try {
@@ -357,6 +357,7 @@ export function useOrder(orderId: string | undefined) {
           order_id: orderId,
           tool_number: toolNumber,
           serial_number: serialNumber || null,
+          tool_model: toolModel || null,
           status: 'pending' as const,
         })
         .select()

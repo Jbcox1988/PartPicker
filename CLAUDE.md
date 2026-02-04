@@ -27,7 +27,8 @@ A warehouse tool picking application built with React, TypeScript, and Supabase.
 - **Dashboard**: https://supabase.com/dashboard/project/uewypezgyyyfanltoyfv
 - **Project Ref**: `uewypezgyyyfanltoyfv`
 - **Region**: (check dashboard for region)
-- **Features Used**: PostgreSQL, Real-time subscriptions, Row Level Security
+- **Features Used**: PostgreSQL, Real-time subscriptions, Row Level Security, Edge Functions
+- **Inventory API**: `https://uewypezgyyyfanltoyfv.supabase.co/functions/v1/inventory-api`
 
 ### GitHub (Source Control)
 - **Repository**: https://github.com/Jbcox1988/PartPicker.git
@@ -57,6 +58,22 @@ VITE_SUPABASE_ANON_KEY=<your-anon-key>
 ## Project Structure
 
 ```
+supabase/
+├── config.toml              # Local dev config (Deno v2, ports, etc.)
+├── migrations/              # SQL migrations (applied with supabase db push)
+└── functions/
+    └── inventory-api/       # Edge Function — REST API for inventory site
+        ├── index.ts         # Routing, auth, CORS, error handling
+        ├── handlers/
+        │   ├── picks.ts     # picks-by-order endpoint
+        │   ├── remaining.ts # remaining parts endpoint
+        │   ├── completed.ts # completed-orders endpoint
+        │   └── comprehensive.ts # all-in-one endpoint
+        └── lib/
+            ├── auth.ts      # API key auth + rate limiting
+            ├── cors.ts      # CORS headers
+            └── response.ts  # JSON response helpers
+
 src/
 ├── components/
 │   ├── common/           # Reusable UI components (EmptyState, SearchInput, OrderFilterPopover)
@@ -116,12 +133,27 @@ Main tables:
 - `parts_catalog` - Master parts list with descriptions/locations
 - `bom_templates` - Saved bill of materials templates
 
+Database views (used by Inventory API Edge Function):
+- `line_item_pick_totals` - Per-line-item pick aggregation (total_picked, remaining)
+- `pick_details` - Denormalized pick details with full order/tool context
+- `consolidated_remaining` - Per-part remaining across active orders with qty_to_order
+- `completed_order_summaries` - Completed orders with aggregated pick stats
+- `get_consolidated_parts(include_fully_picked)` - Function variant with optional flag
+
 ## Commands
 
 ```bash
 npm run dev      # Start dev server (Vite)
 npm run build    # Production build
 npm run preview  # Preview production build
+```
+
+### Supabase CLI Commands
+```bash
+supabase db push                          # Apply pending migrations
+supabase functions deploy inventory-api   # Deploy the Inventory API edge function
+supabase secrets set INVENTORY_API_KEY=<key>  # Set the API key secret
+supabase functions serve inventory-api    # Local dev server for edge functions
 ```
 
 ## Environment Variables
@@ -240,6 +272,44 @@ Updates `qty_available` on line items from external Excel inventory files:
 ### Batch Operations
 - **Pick All in Location**: Button in location group headers to pick all remaining items in that location
 - **Hide Completed Toggle**: Filter out fully-picked items to focus on remaining work
+
+## Inventory API (Edge Function)
+
+A Supabase Edge Function that exposes pick/inventory data via HTTP GET for the company inventory site.
+
+### Authentication
+- API key via `Authorization: Bearer <key>` header or `?api_key=<key>` query param
+- Key stored as Supabase secret `INVENTORY_API_KEY`
+- Rate limited to 60 requests/minute per IP
+
+### Endpoints
+
+All endpoints: `GET https://uewypezgyyyfanltoyfv.supabase.co/functions/v1/inventory-api?endpoint=<name>`
+
+| Endpoint | Params | Description |
+|----------|--------|-------------|
+| `remaining` | `part_number` (opt), `include_fully_picked` (opt) | Per-part remaining quantities across active orders with qty_to_order |
+| `picks-by-order` | `so_number` (required) | All picks for an SO with line items, pick details, and summary stats |
+| `completed-orders` | `so_number`, `since`, `limit` (all opt) | Completed order summaries |
+| `comprehensive` | `so_number` (opt) | Combined: active orders + remaining parts + completed orders |
+
+### Design Decisions
+- **Database views** handle aggregation in Postgres — avoids 1000-row pagination workarounds
+- **Service role key** inside the function bypasses RLS; API key provides access control
+- **Single function with query-param routing** — one cold start, shared auth
+
+### Deployment
+```bash
+supabase db push                                           # Apply migration (views)
+supabase secrets set INVENTORY_API_KEY=$(openssl rand -hex 32)  # Set API key
+supabase functions deploy inventory-api                    # Deploy function
+```
+
+### Testing
+```bash
+curl "https://uewypezgyyyfanltoyfv.supabase.co/functions/v1/inventory-api?endpoint=remaining" \
+  -H "Authorization: Bearer <key>"
+```
 
 ## Scripts
 

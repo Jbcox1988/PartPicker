@@ -37,6 +37,7 @@ export function useConsolidatedParts(statusFilter: OrderStatusFilter = 'all') {
               id,
               so_number,
               order_date,
+              tool_model,
               status
             )
           `)
@@ -128,6 +129,7 @@ export function useConsolidatedParts(statusFilter: OrderStatusFilter = 'all') {
             order_id: item.order_id,
             so_number: orderInfo.so_number,
             order_date: orderInfo.order_date,
+            tool_model: orderInfo.tool_model || null,
             needed: item.total_qty_needed,
             picked: picked,
             line_item_id: item.id,
@@ -146,6 +148,7 @@ export function useConsolidatedParts(statusFilter: OrderStatusFilter = 'all') {
               order_id: item.order_id,
               so_number: orderInfo.so_number,
               order_date: orderInfo.order_date,
+              tool_model: orderInfo.tool_model || null,
               needed: item.total_qty_needed,
               picked: picked,
               line_item_id: item.id,

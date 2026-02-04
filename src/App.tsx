@@ -6,6 +6,7 @@ import { OrderDetail } from '@/pages/OrderDetail';
 import { ConsolidatedParts } from '@/pages/ConsolidatedParts';
 import { ItemsToOrder } from '@/pages/ItemsToOrder';
 import { Import } from '@/pages/Import';
+import { Templates } from '@/pages/Templates';
 import { Settings } from '@/pages/Settings';
 import { Issues } from '@/pages/Issues';
 import { PickHistory } from '@/pages/PickHistory';
@@ -29,6 +30,7 @@ function App() {
           <Route path="/items-to-order" element={<ItemsToOrder />} />
           <Route path="/issues" element={<Issues />} />
           <Route path="/activity" element={<PickHistory />} />
+          <Route path="/templates" element={<Templates />} />
           <Route path="/import" element={<Import />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>

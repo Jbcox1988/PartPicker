@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { supabase } from '@/lib/supabase';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
-import { exportPickHistoryToExcel, type PickHistoryItem, type PickUndoHistoryItem } from '@/lib/excelExport';
+import { exportPickHistoryToExcel, type PickHistoryItem, type PickUndoHistoryItem, type ActivityLogExportItem } from '@/lib/excelExport';
 import { format, startOfDay, endOfDay, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 import {
   Clock,
@@ -26,6 +26,9 @@ import {
   AlertTriangle,
   History,
   Undo2,
+  Plus,
+  Minus,
+  Upload,
 } from 'lucide-react';
 
 interface PickRecord {
@@ -69,7 +72,19 @@ interface UndoRecord {
   order_id: string;
 }
 
-type ActivityRecord = PickRecord | IssueRecord | UndoRecord;
+interface ActivityLogRecord {
+  id: string;
+  type: 'part_added' | 'part_removed' | 'order_imported';
+  so_number: string;
+  part_number: string | null;
+  description: string | null;
+  performed_by: string | null;
+  details: Record<string, unknown> | null;
+  created_at: string;
+  order_id: string;
+}
+
+type ActivityRecord = PickRecord | IssueRecord | UndoRecord | ActivityLogRecord;
 
 const PAGE_SIZE = 50;
 
@@ -87,6 +102,7 @@ export function PickHistory() {
   const [picks, setPicks] = useState<PickRecord[]>([]);
   const [issues, setIssues] = useState<IssueRecord[]>([]);
   const [undos, setUndos] = useState<UndoRecord[]>([]);
+  const [activityLogs, setActivityLogs] = useState<ActivityLogRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(0);
@@ -97,11 +113,14 @@ export function PickHistory() {
   const [allUniqueUsers, setAllUniqueUsers] = useState(0);
   const [totalIssueCount, setTotalIssueCount] = useState(0);
   const [totalUndoCount, setTotalUndoCount] = useState(0);
+  const [totalActivityLogCount, setTotalActivityLogCount] = useState(0);
 
   // Activity type filters
   const [showPicks, setShowPicks] = useState(true);
   const [showIssues, setShowIssues] = useState(true);
   const [showUndos, setShowUndos] = useState(true);
+  const [showPartChanges, setShowPartChanges] = useState(true);
+  const [showImports, setShowImports] = useState(true);
 
   // Date/time filters - default to today
   const [startDate, setStartDate] = useState(() => format(startOfDay(new Date()), "yyyy-MM-dd'T'HH:mm"));
@@ -344,11 +363,41 @@ export function PickHistory() {
         setUndos(transformedUndos);
         setTotalUndoCount(transformedUndos.length);
       }
+
+      // Fetch activity logs in date range
+      if (page === 0) {
+        const { data: activityLogData, error: activityLogError } = await supabase
+          .from('activity_log')
+          .select('*')
+          .gte('created_at', startISO)
+          .lte('created_at', endISO)
+          .order('created_at', { ascending: false });
+
+        if (activityLogError) {
+          console.error('Error fetching activity logs:', activityLogError);
+        }
+
+        const transformedActivityLogs: ActivityLogRecord[] = (activityLogData || []).map((log: any) => ({
+          id: log.id,
+          type: log.type as 'part_added' | 'part_removed' | 'order_imported',
+          so_number: log.so_number,
+          part_number: log.part_number,
+          description: log.description,
+          performed_by: log.performed_by,
+          details: log.details,
+          created_at: log.created_at,
+          order_id: log.order_id,
+        }));
+
+        setActivityLogs(transformedActivityLogs);
+        setTotalActivityLogCount(transformedActivityLogs.length);
+      }
     } catch (err) {
       console.error('Error fetching data:', err);
       setPicks([]);
       setIssues([]);
       setUndos([]);
+      setActivityLogs([]);
     } finally {
       setLoading(false);
     }
@@ -367,6 +416,19 @@ export function PickHistory() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch]);
 
+  // Helper to get timestamp from any activity record
+  const getActivityTimestamp = (a: ActivityRecord): string => {
+    switch (a.type) {
+      case 'pick': return a.picked_at;
+      case 'undo': return a.undone_at;
+      case 'part_added':
+      case 'part_removed':
+      case 'order_imported': return a.created_at;
+      case 'issue_created':
+      case 'issue_resolved': return a.timestamp;
+    }
+  };
+
   // Combine and filter activities
   const allActivities = useMemo(() => {
     const activities: ActivityRecord[] = [];
@@ -383,15 +445,24 @@ export function PickHistory() {
       activities.push(...undos);
     }
 
+    if (page === 0) {
+      if (showPartChanges) {
+        activities.push(...activityLogs.filter(a => a.type === 'part_added' || a.type === 'part_removed'));
+      }
+      if (showImports) {
+        activities.push(...activityLogs.filter(a => a.type === 'order_imported'));
+      }
+    }
+
     // Sort by timestamp descending
     activities.sort((a, b) => {
-      const timeA = a.type === 'pick' ? a.picked_at : a.type === 'undo' ? a.undone_at : a.timestamp;
-      const timeB = b.type === 'pick' ? b.picked_at : b.type === 'undo' ? b.undone_at : b.timestamp;
+      const timeA = getActivityTimestamp(a);
+      const timeB = getActivityTimestamp(b);
       return new Date(timeB).getTime() - new Date(timeA).getTime();
     });
 
     return activities;
-  }, [picks, issues, undos, showPicks, showIssues, showUndos, page]);
+  }, [picks, issues, undos, activityLogs, showPicks, showIssues, showUndos, showPartChanges, showImports, page]);
 
   // Filter by search query (local filter for instant feedback while debounce pending)
   // Server-side filtering is the primary filter; this provides immediate UI response
@@ -421,7 +492,14 @@ export function PickHistory() {
           activity.so_number.toLowerCase().includes(query) ||
           activity.tool_number.toLowerCase().includes(query)
         );
-      } else {
+      } else if (activity.type === 'part_added' || activity.type === 'part_removed' || activity.type === 'order_imported') {
+        return (
+          (activity.performed_by && activity.performed_by.toLowerCase().includes(query)) ||
+          (activity.part_number && activity.part_number.toLowerCase().includes(query)) ||
+          activity.so_number.toLowerCase().includes(query) ||
+          (activity.description && activity.description.toLowerCase().includes(query))
+        );
+      } else if (activity.type === 'issue_created' || activity.type === 'issue_resolved') {
         return (
           (activity.user && activity.user.toLowerCase().includes(query)) ||
           activity.part_number.toLowerCase().includes(query) ||
@@ -430,13 +508,14 @@ export function PickHistory() {
           (activity.description && activity.description.toLowerCase().includes(query))
         );
       }
+      return false;
     });
   }, [allActivities, searchQuery, debouncedSearch]);
 
   // Group activities by date
   const groupedActivities = useMemo(() => {
     return filteredActivities.reduce((groups, activity) => {
-      const timestamp = activity.type === 'pick' ? activity.picked_at : activity.type === 'undo' ? activity.undone_at : activity.timestamp;
+      const timestamp = getActivityTimestamp(activity);
       const date = format(new Date(timestamp), 'yyyy-MM-dd');
       if (!groups[date]) {
         groups[date] = [];
@@ -451,6 +530,9 @@ export function PickHistory() {
     const picksOnly = filteredActivities.filter((a): a is PickRecord => a.type === 'pick');
     const issuesOnly = filteredActivities.filter((a): a is IssueRecord => a.type === 'issue_created' || a.type === 'issue_resolved');
     const undosOnly = filteredActivities.filter((a): a is UndoRecord => a.type === 'undo');
+    const activityLogsOnly = filteredActivities.filter((a): a is ActivityLogRecord =>
+      a.type === 'part_added' || a.type === 'part_removed' || a.type === 'order_imported'
+    );
 
     const totalQty = picksOnly.reduce((sum, p) => sum + p.qty_picked, 0);
     const uniqueParts = new Set(picksOnly.map(p => p.part_number)).size;
@@ -458,11 +540,14 @@ export function PickHistory() {
       ...picksOnly.filter(p => p.picked_by).map(p => p.picked_by),
       ...issuesOnly.filter(i => i.user).map(i => i.user),
       ...undosOnly.map(u => u.undone_by),
+      ...activityLogsOnly.filter(a => a.performed_by).map(a => a.performed_by),
     ]).size;
     const issueCount = issuesOnly.length;
     const undoCount = undosOnly.length;
+    const partChangesCount = activityLogsOnly.filter(a => a.type === 'part_added' || a.type === 'part_removed').length;
+    const importsCount = activityLogsOnly.filter(a => a.type === 'order_imported').length;
 
-    return { totalQty, uniqueParts, uniqueUsers, pickCount: picksOnly.length, issueCount, undoCount };
+    return { totalQty, uniqueParts, uniqueUsers, pickCount: picksOnly.length, issueCount, undoCount, partChangesCount, importsCount };
   }, [filteredActivities]);
 
   // Handle preset selection - also triggers search
@@ -667,11 +752,39 @@ export function PickHistory() {
 
         setUndos(transformedUndos);
         setTotalUndoCount(transformedUndos.length);
+
+        // Fetch activity logs
+        const { data: activityLogData, error: activityLogError } = await supabase
+          .from('activity_log')
+          .select('*')
+          .gte('created_at', startISO)
+          .lte('created_at', endISO)
+          .order('created_at', { ascending: false });
+
+        if (activityLogError) {
+          console.error('Error fetching activity logs:', activityLogError);
+        }
+
+        const transformedActivityLogs: ActivityLogRecord[] = (activityLogData || []).map((log: any) => ({
+          id: log.id,
+          type: log.type as 'part_added' | 'part_removed' | 'order_imported',
+          so_number: log.so_number,
+          part_number: log.part_number,
+          description: log.description,
+          performed_by: log.performed_by,
+          details: log.details,
+          created_at: log.created_at,
+          order_id: log.order_id,
+        }));
+
+        setActivityLogs(transformedActivityLogs);
+        setTotalActivityLogCount(transformedActivityLogs.length);
       } catch (err) {
         console.error('Error fetching data:', err);
         setPicks([]);
         setIssues([]);
         setUndos([]);
+        setActivityLogs([]);
       } finally {
         setLoading(false);
       }
@@ -769,8 +882,25 @@ export function PickHistory() {
         so_number: undo.so_number,
       }));
 
+      // Fetch activity logs for export
+      const { data: activityLogExportData } = await supabase
+        .from('activity_log')
+        .select('*')
+        .gte('created_at', startISO)
+        .lte('created_at', endISO)
+        .order('created_at', { ascending: false });
+
+      const activityLogExport: ActivityLogExportItem[] = (activityLogExportData || []).map((log: any) => ({
+        created_at: log.created_at,
+        type: log.type,
+        performed_by: log.performed_by,
+        so_number: log.so_number,
+        part_number: log.part_number,
+        description: log.description,
+      }));
+
       const dateRange = `${format(new Date(startDate), 'MMM d')} - ${format(new Date(endDate), 'MMM d, yyyy')}`;
-      exportPickHistoryToExcel(exportData, `Activity History: ${dateRange}`, undoExport);
+      exportPickHistoryToExcel(exportData, `Activity History: ${dateRange}`, undoExport, activityLogExport);
     } catch (err) {
       console.error('Export failed:', err);
     } finally {
@@ -788,6 +918,12 @@ export function PickHistory() {
         return <AlertTriangle className="h-4 w-4 text-amber-500 dark:text-amber-400" />;
       case 'issue_resolved':
         return <CheckCircle className="h-4 w-4 text-blue-500 dark:text-blue-400" />;
+      case 'part_added':
+        return <Plus className="h-4 w-4 text-green-500 dark:text-green-400" />;
+      case 'part_removed':
+        return <Minus className="h-4 w-4 text-red-500 dark:text-red-400" />;
+      case 'order_imported':
+        return <Upload className="h-4 w-4 text-blue-500 dark:text-blue-400" />;
     }
   };
 
@@ -801,6 +937,12 @@ export function PickHistory() {
         return <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-800 text-xs">Issue</Badge>;
       case 'issue_resolved':
         return <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/20 dark:text-blue-400 dark:border-blue-800 text-xs">Resolved</Badge>;
+      case 'part_added':
+        return <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 dark:bg-green-950/20 dark:text-green-400 dark:border-green-800 text-xs">Part Added</Badge>;
+      case 'part_removed':
+        return <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 dark:bg-red-950/20 dark:text-red-400 dark:border-red-800 text-xs">Part Removed</Badge>;
+      case 'order_imported':
+        return <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/20 dark:text-blue-400 dark:border-blue-800 text-xs">Order Imported</Badge>;
     }
   };
 
@@ -896,6 +1038,20 @@ export function PickHistory() {
               />
               <span className="text-sm">Undos</span>
             </label>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <Checkbox
+                checked={showPartChanges}
+                onCheckedChange={(checked) => setShowPartChanges(checked === true)}
+              />
+              <span className="text-sm">Part Changes</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <Checkbox
+                checked={showImports}
+                onCheckedChange={(checked) => setShowImports(checked === true)}
+              />
+              <span className="text-sm">Imports</span>
+            </label>
           </div>
 
           {/* Search Button */}
@@ -918,7 +1074,7 @@ export function PickHistory() {
       {hasSearched && (
         <>
           {/* Summary Stats */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-4">
             <Card>
               <CardContent className="pt-4">
                 <div className="text-2xl font-bold">{totalPickCount.toLocaleString()}</div>
@@ -953,6 +1109,18 @@ export function PickHistory() {
               <CardContent className="pt-4">
                 <div className="text-2xl font-bold text-red-600 dark:text-red-400">{totalUndoCount}</div>
                 <p className="text-xs text-muted-foreground">Undos</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="text-2xl font-bold">{summaryStats.partChangesCount}</div>
+                <p className="text-xs text-muted-foreground">Part Changes</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{summaryStats.importsCount}</div>
+                <p className="text-xs text-muted-foreground">Imports</p>
               </CardContent>
             </Card>
           </div>
@@ -1015,7 +1183,10 @@ export function PickHistory() {
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="font-medium flex items-center gap-1">
                                   <User className="h-3 w-3" />
-                                  {activity.type === 'pick' ? (activity.picked_by || 'Unknown') : activity.type === 'undo' ? activity.undone_by : (activity.user || 'Unknown')}
+                                  {activity.type === 'pick' ? (activity.picked_by || 'Unknown')
+                                    : activity.type === 'undo' ? activity.undone_by
+                                    : activity.type === 'part_added' || activity.type === 'part_removed' || activity.type === 'order_imported' ? (activity.performed_by || 'Unknown')
+                                    : ((activity as IssueRecord).user || 'Unknown')}
                                 </span>
                                 {getActivityBadge(activity.type)}
                                 {activity.type === 'pick' && (
@@ -1046,15 +1217,33 @@ export function PickHistory() {
                                 )}
                               </div>
                               <p className="text-sm text-muted-foreground mt-0.5">
-                                <span className="font-mono font-medium">{activity.part_number}</span>
-                                {activity.type === 'pick' && activity.description && (
-                                  <span className="text-muted-foreground"> - {activity.description}</span>
+                                {(activity.type === 'part_added' || activity.type === 'part_removed') && activity.part_number && (
+                                  <span className="font-mono font-medium">{activity.part_number}</span>
                                 )}
-                                {activity.type === 'undo' && activity.picked_by && (
-                                  <span className="text-muted-foreground"> - originally picked by {activity.picked_by}</span>
+                                {activity.type === 'order_imported' && activity.description && (
+                                  <span>{activity.description}</span>
                                 )}
-                                {activity.type !== 'pick' && activity.type !== 'undo' && (
-                                  <span className="text-muted-foreground"> - {activity.issue_type.replace('_', ' ')}</span>
+                                {activity.type === 'pick' && (
+                                  <>
+                                    <span className="font-mono font-medium">{activity.part_number}</span>
+                                    {activity.description && (
+                                      <span className="text-muted-foreground"> - {activity.description}</span>
+                                    )}
+                                  </>
+                                )}
+                                {activity.type === 'undo' && (
+                                  <>
+                                    <span className="font-mono font-medium">{activity.part_number}</span>
+                                    {activity.picked_by && (
+                                      <span className="text-muted-foreground"> - originally picked by {activity.picked_by}</span>
+                                    )}
+                                  </>
+                                )}
+                                {(activity.type === 'issue_created' || activity.type === 'issue_resolved') && (
+                                  <>
+                                    <span className="font-mono font-medium">{activity.part_number}</span>
+                                    <span className="text-muted-foreground"> - {activity.issue_type.replace('_', ' ')}</span>
+                                  </>
                                 )}
                               </p>
                               {activity.type === 'pick' && activity.location && (
@@ -1067,14 +1256,19 @@ export function PickHistory() {
                                   Note: {activity.notes}
                                 </p>
                               )}
-                              {activity.type !== 'pick' && activity.type !== 'undo' && activity.description && (
+                              {(activity.type === 'issue_created' || activity.type === 'issue_resolved') && activity.description && (
+                                <p className="text-xs text-muted-foreground mt-0.5 italic">
+                                  {activity.description}
+                                </p>
+                              )}
+                              {(activity.type === 'part_added' || activity.type === 'part_removed') && activity.description && (
                                 <p className="text-xs text-muted-foreground mt-0.5 italic">
                                   {activity.description}
                                 </p>
                               )}
                             </div>
                             <div className="text-xs text-muted-foreground whitespace-nowrap">
-                              {format(new Date(activity.type === 'pick' ? activity.picked_at : activity.type === 'undo' ? activity.undone_at : activity.timestamp), 'h:mm a')}
+                              {format(new Date(getActivityTimestamp(activity)), 'h:mm a')}
                             </div>
                           </div>
                         ))}

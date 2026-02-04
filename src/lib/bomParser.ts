@@ -1,4 +1,6 @@
 import type { ImportedOrder, ImportedLineItem, ImportedTool, PartsCatalogItem } from '@/types';
+import { resolveHierarchyLeaves } from './hierarchyUtils';
+import type { HierarchyRow } from './hierarchyUtils';
 
 /**
  * Multi-level BOM CSV parser and merger for multi-BOM imports.
@@ -155,71 +157,31 @@ export function parseBOMCsv(csvText: string, filename: string): ParsedBOM {
     return { toolModel, leafParts: [], warnings };
   }
 
-  // Determine leaf parts and calculate effective quantities
-  // A part is a leaf if the next row is NOT at a deeper level
-  // We also track the assembly stack to know parent quantities and the top-level assembly
+  // Resolve leaf parts using shared hierarchy utility
+  const hierarchyRows: HierarchyRow[] = dataRows.map(r => ({
+    level: r.level,
+    partNumber: r.partNumber,
+    qty: r.qty,
+    description: r.description,
+  }));
 
-  // assemblyStack[level] = { partNumber, effectiveQty }
-  // effectiveQty = this assembly's qty * parent's effectiveQty
-  const assemblyStack: Map<number, { partNumber: string; effectiveQty: number }> = new Map();
-  const leafParts: ParsedLeafPart[] = [];
+  const resolvedLeaves = resolveHierarchyLeaves(hierarchyRows);
 
-  for (let i = 0; i < dataRows.length; i++) {
-    const row = dataRows[i];
-    const nextRow = i + 1 < dataRows.length ? dataRows[i + 1] : null;
-    const isLeaf = !nextRow || nextRow.level <= row.level;
-
-    // Calculate effective quantity by multiplying through parent chain
-    let parentEffectiveQty = 1;
-    // Find the closest ancestor (level < current level)
-    for (let lvl = row.level - 1; lvl >= 0; lvl--) {
-      const ancestor = assemblyStack.get(lvl);
-      if (ancestor) {
-        parentEffectiveQty = ancestor.effectiveQty;
-        break;
-      }
-    }
-
-    const effectiveQty = row.qty * parentEffectiveQty;
-
-    // Update assembly stack for this level
-    assemblyStack.set(row.level, { partNumber: row.partNumber, effectiveQty });
-
-    // Clean up deeper levels from stack (they're no longer in scope)
-    for (const [lvl] of assemblyStack) {
-      if (lvl > row.level) {
-        assemblyStack.delete(lvl);
-      }
-    }
-
-    // Determine top-level assembly group (level 1 ancestor, or level 0 if flat)
-    let assemblyGroup = '';
-    // Look for the first assembly at level 1 (or the root at level 0)
-    for (let lvl = 1; lvl >= 0; lvl--) {
-      const ancestor = assemblyStack.get(lvl);
-      if (ancestor) {
-        assemblyGroup = ancestor.partNumber;
-        break;
-      }
-    }
-    // If the current item IS level 0 or 1, it's its own assembly group
-    if (row.level <= 1) {
-      assemblyGroup = row.partNumber;
-    }
-
-    if (isLeaf) {
-      // Round fractional quantities up to 1 minimum
-      const finalQty = Math.max(1, Math.ceil(effectiveQty));
-
-      leafParts.push({
-        partNumber: row.partNumber,
-        description: row.description,
-        qty: finalQty,
-        assemblyGroup,
-        type: row.type,
-      });
+  // Build a type lookup from dataRows for the resolved leaves
+  const typeByPartNumber = new Map<string, string>();
+  for (const r of dataRows) {
+    if (!typeByPartNumber.has(r.partNumber)) {
+      typeByPartNumber.set(r.partNumber, r.type);
     }
   }
+
+  const leafParts: ParsedLeafPart[] = resolvedLeaves.map(leaf => ({
+    partNumber: leaf.partNumber,
+    description: leaf.description,
+    qty: leaf.effectiveQty,
+    assemblyGroup: leaf.assemblyGroup,
+    type: typeByPartNumber.get(leaf.partNumber) || '',
+  }));
 
   return { toolModel, leafParts, warnings };
 }

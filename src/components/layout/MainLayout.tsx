@@ -17,6 +17,7 @@ import {
   Sun,
   Moon,
   Monitor,
+  FileText,
 } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -41,6 +42,7 @@ const navItems = [
   { path: '/items-to-order', label: 'Items to Order', icon: ShoppingCart },
   { path: '/issues', label: 'Issues', icon: AlertTriangle },
   { path: '/activity', label: 'Activity History', icon: History },
+  { path: '/templates', label: 'Templates', icon: FileText },
   { path: '/import', label: 'Import', icon: Upload },
   { path: '/settings', label: 'Settings', icon: Settings },
 ];

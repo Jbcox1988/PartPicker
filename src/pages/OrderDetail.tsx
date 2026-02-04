@@ -25,6 +25,7 @@ import { usePicks } from '@/hooks/usePicks';
 import { useLineItems, type LineItemInput } from '@/hooks/useLineItems';
 import { useIssues } from '@/hooks/useIssues';
 import { useSettings } from '@/hooks/useSettings';
+import { useActivityLog } from '@/hooks/useActivityLog';
 import type { Tool, LineItem } from '@/types';
 import { getStatusColor } from '@/lib/utils';
 import { exportOrderToExcel } from '@/lib/excelExport';
@@ -39,6 +40,7 @@ export function OrderDetail() {
   const { reportIssue, hasOpenIssue } = useIssues(id);
   const { getUserName } = useSettings();
   const { createTemplateFromOrder } = useBOMTemplates();
+  const { logActivity } = useActivityLog();
 
   // UI state
   const [showCompletionSuggestion, setShowCompletionSuggestion] = useState(false);
@@ -150,7 +152,20 @@ export function OrderDetail() {
   // Line item handlers
   const handleAddLineItem = async (input: LineItemInput): Promise<boolean> => {
     const result = await addLineItem(input);
-    if (result) {
+    if (result && order) {
+      logActivity({
+        type: 'part_added',
+        order_id: order.id,
+        so_number: order.so_number,
+        part_number: input.part_number,
+        description: `Part ${input.part_number} added to SO-${order.so_number}`,
+        performed_by: getUserName(),
+        details: {
+          qty_per_unit: input.qty_per_unit,
+          total_qty_needed: input.total_qty_needed,
+          location: input.location || null,
+        },
+      });
       refresh();
       return true;
     }
@@ -167,8 +182,24 @@ export function OrderDetail() {
   };
 
   const handleDeleteLineItem = async (lineItemId: string): Promise<boolean> => {
+    // Find the line item before deleting for logging
+    const lineItem = lineItems.find(li => li.id === lineItemId);
     const result = await deleteLineItem(lineItemId);
-    if (result) {
+    if (result && order) {
+      logActivity({
+        type: 'part_removed',
+        order_id: order.id,
+        so_number: order.so_number,
+        part_number: lineItem?.part_number || 'Unknown',
+        description: `Part ${lineItem?.part_number || 'Unknown'} removed from SO-${order.so_number}`,
+        performed_by: getUserName(),
+        details: {
+          qty_per_unit: lineItem?.qty_per_unit,
+          total_qty_needed: lineItem?.total_qty_needed,
+          location: lineItem?.location || null,
+          description: lineItem?.description || null,
+        },
+      });
       refresh();
       return true;
     }
@@ -176,8 +207,8 @@ export function OrderDetail() {
   };
 
   // Tool handlers
-  const handleAddToolFromDialog = async (toolNumber: string, serialNumber?: string): Promise<Tool | null> => {
-    const newTool = await addTool(toolNumber, serialNumber);
+  const handleAddToolFromDialog = async (toolNumber: string, serialNumber?: string, toolModel?: string): Promise<Tool | null> => {
+    const newTool = await addTool(toolNumber, serialNumber, toolModel);
     if (newTool) {
       setCurrentToolId(newTool.id);
     }
@@ -328,6 +359,7 @@ export function OrderDetail() {
         }}
         hasOpenIssue={hasOpenIssue}
         onBatchUpdateAllocations={batchUpdateAllocations}
+        onDeleteLineItem={handleDeleteLineItem}
       />
 
       {/* Dialogs */}
@@ -336,6 +368,7 @@ export function OrderDetail() {
         onOpenChange={setIsManageToolsOpen}
         tools={tools}
         soNumber={order.so_number}
+        defaultToolModel={order.tool_model}
         onAddTool={handleAddToolFromDialog}
         onDeleteTool={handleDeleteToolFromDialog}
         getToolPickCount={getToolPickCount}
