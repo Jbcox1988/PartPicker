@@ -479,24 +479,24 @@ export function ConsolidatedParts() {
     setExpandedParts(newExpanded);
   };
 
-  // Stats
-  const totalParts = parts.length;
-  const completeParts = parts.filter((p) => p.remaining === 0).length;
-  const totalNeeded = parts.reduce((sum, p) => sum + p.total_needed, 0);
-  const totalPicked = parts.reduce((sum, p) => sum + p.total_picked, 0);
+  // Stats (computed from filteredParts so they update when filters are applied)
+  const totalParts = filteredParts.length;
+  const completeParts = filteredParts.filter((p) => p.remaining === 0).length;
+  const totalNeeded = filteredParts.reduce((sum, p) => sum + p.total_needed, 0);
+  const totalPicked = filteredParts.reduce((sum, p) => sum + p.total_picked, 0);
 
   const handleExport = () => {
-    exportConsolidatedPartsToExcel(parts);
+    exportConsolidatedPartsToExcel(filteredParts);
   };
 
   // Copy part numbers feedback
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
 
   const handleCopyPartNumbers = async () => {
-    const partNumbers = parts.map(p => p.part_number).join('\n');
+    const partNumbers = filteredParts.map(p => p.part_number).join('\n');
     try {
       await navigator.clipboard.writeText(partNumbers);
-      setCopyFeedback(`${parts.length} part numbers copied`);
+      setCopyFeedback(`${filteredParts.length} part numbers copied`);
       setTimeout(() => setCopyFeedback(null), 2000);
     } catch {
       setCopyFeedback('Failed to copy');
@@ -505,7 +505,7 @@ export function ConsolidatedParts() {
   };
 
   const handleExportPartNumbers = () => {
-    const partNumbers = parts.map(p => p.part_number);
+    const partNumbers = filteredParts.map(p => p.part_number);
     exportPartNumbersToExcel(partNumbers);
   };
 
@@ -519,15 +519,15 @@ export function ConsolidatedParts() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handleCopyPartNumbers} disabled={parts.length === 0}>
+          <Button variant="outline" size="sm" onClick={handleCopyPartNumbers} disabled={filteredParts.length === 0}>
             <Copy className="mr-2 h-4 w-4" />
             {copyFeedback || 'Copy Part #s'}
           </Button>
-          <Button variant="outline" size="sm" onClick={handleExportPartNumbers} disabled={parts.length === 0}>
+          <Button variant="outline" size="sm" onClick={handleExportPartNumbers} disabled={filteredParts.length === 0}>
             <FileSpreadsheet className="mr-2 h-4 w-4" />
             Export Part #s
           </Button>
-          <Button variant="outline" size="sm" onClick={handleExport} disabled={parts.length === 0}>
+          <Button variant="outline" size="sm" onClick={handleExport} disabled={filteredParts.length === 0}>
             <Download className="mr-2 h-4 w-4" />
             Export Full
           </Button>

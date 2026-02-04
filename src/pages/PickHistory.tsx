@@ -1073,41 +1073,41 @@ export function PickHistory() {
       {/* Results */}
       {hasSearched && (
         <>
-          {/* Summary Stats */}
+          {/* Summary Stats (filter-reactive via summaryStats) */}
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-4">
             <Card>
               <CardContent className="pt-4">
-                <div className="text-2xl font-bold">{totalPickCount.toLocaleString()}</div>
+                <div className="text-2xl font-bold">{summaryStats.pickCount.toLocaleString()}</div>
                 <p className="text-xs text-muted-foreground">Picks</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="pt-4">
-                <div className="text-2xl font-bold">{totalQtyPicked.toLocaleString()}</div>
+                <div className="text-2xl font-bold">{summaryStats.totalQty.toLocaleString()}</div>
                 <p className="text-xs text-muted-foreground">Qty Picked</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="pt-4">
-                <div className="text-2xl font-bold">{allUniqueParts}</div>
+                <div className="text-2xl font-bold">{summaryStats.uniqueParts}</div>
                 <p className="text-xs text-muted-foreground">Unique Parts</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="pt-4">
-                <div className="text-2xl font-bold">{allUniqueUsers}</div>
+                <div className="text-2xl font-bold">{summaryStats.uniqueUsers}</div>
                 <p className="text-xs text-muted-foreground">Users</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="pt-4">
-                <div className="text-2xl font-bold">{totalIssueCount}</div>
+                <div className="text-2xl font-bold">{summaryStats.issueCount}</div>
                 <p className="text-xs text-muted-foreground">Issues</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="pt-4">
-                <div className="text-2xl font-bold text-red-600 dark:text-red-400">{totalUndoCount}</div>
+                <div className="text-2xl font-bold text-red-600 dark:text-red-400">{summaryStats.undoCount}</div>
                 <p className="text-xs text-muted-foreground">Undos</p>
               </CardContent>
             </Card>

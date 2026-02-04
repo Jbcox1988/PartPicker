@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from 'react';
-import { FileText, Plus, ArrowLeft, Pencil, Trash2, Search, Loader2 } from 'lucide-react';
+import React, { useState, useMemo, useCallback } from 'react';
+import { FileText, Plus, ArrowLeft, Pencil, Trash2, Search, Loader2, ListChecks, Package, Puzzle, Filter, X } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -24,6 +24,12 @@ import { SearchInput } from '@/components/common/SearchInput';
 import { useBOMTemplates } from '@/hooks/useBOMTemplates';
 import type { BOMTemplate, BOMTemplateItem, BOMTemplateWithItems } from '@/types';
 
+interface AssemblyGroup {
+  name: string;
+  key: string; // '__all__' = All, '__unassigned__' = loose parts, or assembly name
+  count: number;
+}
+
 export function Templates() {
   const {
     templates,
@@ -47,6 +53,10 @@ export function Templates() {
   // Filters
   const [search, setSearch] = useState('');
   const [modelFilter, setModelFilter] = useState('all');
+
+  // Assembly navigation
+  const [selectedAssemblyFilter, setSelectedAssemblyFilter] = useState<string | null>(null);
+  const [templateItemSearch, setTemplateItemSearch] = useState('');
 
   // Template dialog
   const [showTemplateDialog, setShowTemplateDialog] = useState(false);
@@ -103,11 +113,103 @@ export function Templates() {
     };
   }, [templates]);
 
+  // --- Assembly navigation computed values ---
+
+  const assemblyGroups = useMemo((): AssemblyGroup[] => {
+    if (!selectedTemplate) return [];
+    const groups = new Map<string, number>();
+    let unassignedCount = 0;
+
+    for (const item of selectedTemplate.items) {
+      if (item.assembly_group) {
+        groups.set(item.assembly_group, (groups.get(item.assembly_group) || 0) + 1);
+      } else {
+        unassignedCount++;
+      }
+    }
+
+    const result: AssemblyGroup[] = Array.from(groups.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([name, count]) => ({ name, key: name, count }));
+
+    if (unassignedCount > 0) {
+      result.push({ name: 'Loose Parts', key: '__unassigned__', count: unassignedCount });
+    }
+
+    return result;
+  }, [selectedTemplate]);
+
+  const hasMultipleAssemblies = assemblyGroups.length > 1;
+
+  const activeFilterName = useMemo(() => {
+    if (selectedAssemblyFilter === null) return 'All Items';
+    if (selectedAssemblyFilter === '__unassigned__') return 'Loose Parts';
+    return selectedAssemblyFilter;
+  }, [selectedAssemblyFilter]);
+
+  const filteredTemplateItems = useMemo((): BOMTemplateItem[] => {
+    if (!selectedTemplate) return [];
+    let items = selectedTemplate.items;
+
+    // Filter by assembly
+    if (selectedAssemblyFilter !== null) {
+      if (selectedAssemblyFilter === '__unassigned__') {
+        items = items.filter(i => !i.assembly_group);
+      } else {
+        items = items.filter(i => i.assembly_group === selectedAssemblyFilter);
+      }
+    }
+
+    // Filter by search
+    if (templateItemSearch.trim()) {
+      const q = templateItemSearch.toLowerCase().trim();
+      items = items.filter(i =>
+        i.part_number.toLowerCase().includes(q) ||
+        (i.description && i.description.toLowerCase().includes(q)) ||
+        (i.location && i.location.toLowerCase().includes(q))
+      );
+    }
+
+    return items;
+  }, [selectedTemplate, selectedAssemblyFilter, templateItemSearch]);
+
+  const sortedFilteredItems = useMemo((): BOMTemplateItem[] => {
+    const items = [...filteredTemplateItems];
+
+    // When showing "All Items" with multiple assemblies, sort by assembly_group for group headers
+    if (selectedAssemblyFilter === null && hasMultipleAssemblies) {
+      items.sort((a, b) => {
+        const aGroup = a.assembly_group || '';
+        const bGroup = b.assembly_group || '';
+        if (!aGroup && bGroup) return 1;
+        if (aGroup && !bGroup) return -1;
+        return aGroup.localeCompare(bGroup);
+      });
+    }
+
+    return items;
+  }, [filteredTemplateItems, selectedAssemblyFilter, hasMultipleAssemblies]);
+
+  const shouldShowAssemblyHeader = useCallback((index: number): boolean => {
+    if (index === 0) return true;
+    const item = sortedFilteredItems[index];
+    const prevItem = sortedFilteredItems[index - 1];
+    return (item.assembly_group || '') !== (prevItem.assembly_group || '');
+  }, [sortedFilteredItems]);
+
+  const getAssemblyGroupCount = useCallback((assemblyGroup: string | null): number => {
+    if (!selectedTemplate) return 0;
+    const group = assemblyGroup || '';
+    return selectedTemplate.items.filter(i => (i.assembly_group || '') === group).length;
+  }, [selectedTemplate]);
+
   // Load template detail
   const handleSelectTemplate = async (template: BOMTemplate) => {
     setLoadingDetail(true);
     const detail = await getTemplateWithItems(template.id);
     setSelectedTemplate(detail);
+    setSelectedAssemblyFilter(null);
+    setTemplateItemSearch('');
     setLoadingDetail(false);
   };
 
@@ -182,7 +284,12 @@ export function Templates() {
   // Item CRUD
   const openAddItem = () => {
     setEditingItem(null);
-    setItemForm({ part_number: '', description: '', location: '', assembly_group: '', qty_per_unit: 1 });
+    // Pre-fill assembly_group from current filter
+    let prefillAssembly = '';
+    if (selectedAssemblyFilter && selectedAssemblyFilter !== '__unassigned__') {
+      prefillAssembly = selectedAssemblyFilter;
+    }
+    setItemForm({ part_number: '', description: '', location: '', assembly_group: prefillAssembly, qty_per_unit: 1 });
     setShowItemDialog(true);
   };
 
@@ -234,6 +341,8 @@ export function Templates() {
 
   // Detail view
   if (selectedTemplate) {
+    const showAssemblyColumn = selectedAssemblyFilter === null || !hasMultipleAssemblies;
+
     return (
       <div className="space-y-6">
         {/* Header */}
@@ -258,20 +367,172 @@ export function Templates() {
           </Button>
         </div>
 
+        {/* Assembly Overview Cards (only when 2+ assembly groups) */}
+        {hasMultipleAssemblies && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+            {/* All Items Card */}
+            <Card
+              className={`cursor-pointer transition-all hover:bg-accent/50 ${
+                selectedAssemblyFilter === null ? 'ring-2 ring-primary shadow-sm' : ''
+              }`}
+              onClick={() => setSelectedAssemblyFilter(null)}
+            >
+              <CardContent className="flex flex-col items-center p-4 text-center">
+                <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center mb-2">
+                  <ListChecks className="h-5 w-5" />
+                </div>
+                <div className="font-medium text-sm">All Items</div>
+                <Badge variant="default" className="mt-1">{selectedTemplate.items.length}</Badge>
+              </CardContent>
+            </Card>
+
+            {/* Assembly Group Cards */}
+            {assemblyGroups.map(group => (
+              <Card
+                key={group.key}
+                className={`cursor-pointer transition-all hover:bg-accent/50 ${
+                  selectedAssemblyFilter === group.key ? 'ring-2 ring-purple-500 shadow-sm' : ''
+                }`}
+                onClick={() => setSelectedAssemblyFilter(group.key)}
+              >
+                <CardContent className="flex flex-col items-center p-4 text-center">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center mb-2 ${
+                    group.key === '__unassigned__'
+                      ? 'bg-muted text-muted-foreground'
+                      : 'bg-purple-100 text-purple-600 dark:bg-purple-950/30 dark:text-purple-400'
+                  }`}>
+                    {group.key === '__unassigned__'
+                      ? <Puzzle className="h-5 w-5" />
+                      : <Package className="h-5 w-5" />
+                    }
+                  </div>
+                  <div className="font-medium text-sm truncate w-full">{group.name}</div>
+                  <Badge
+                    className={`mt-1 ${
+                      group.key === '__unassigned__'
+                        ? ''
+                        : 'bg-purple-600 hover:bg-purple-700 dark:bg-purple-600 dark:hover:bg-purple-700'
+                    }`}
+                    variant={group.key === '__unassigned__' ? 'secondary' : 'default'}
+                  >
+                    {group.count}
+                  </Badge>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+
+        {/* Assembly Tab Bar (only when 2+ assembly groups) */}
+        {hasMultipleAssemblies && (
+          <div className="overflow-x-auto scrollbar-hide">
+            <div className="inline-flex h-10 items-center justify-start rounded-md bg-muted p-1 text-muted-foreground w-auto min-w-full sm:min-w-0">
+              <button
+                className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all ${
+                  selectedAssemblyFilter === null
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'hover:bg-background/50'
+                }`}
+                onClick={() => setSelectedAssemblyFilter(null)}
+              >
+                All Items
+                <Badge variant={selectedAssemblyFilter === null ? 'default' : 'secondary'} className="ml-1.5 h-5 px-1.5 text-xs">
+                  {selectedTemplate.items.length}
+                </Badge>
+              </button>
+              {assemblyGroups.map(group => (
+                <button
+                  key={group.key}
+                  className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all ${
+                    selectedAssemblyFilter === group.key
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'hover:bg-background/50'
+                  }`}
+                  onClick={() => setSelectedAssemblyFilter(group.key)}
+                >
+                  {group.name}
+                  <Badge
+                    className={`ml-1.5 h-5 px-1.5 text-xs ${
+                      selectedAssemblyFilter === group.key && group.key !== '__unassigned__'
+                        ? 'bg-purple-600 hover:bg-purple-700 dark:bg-purple-600'
+                        : ''
+                    }`}
+                    variant={selectedAssemblyFilter === group.key && group.key !== '__unassigned__' ? 'default' : 'secondary'}
+                  >
+                    {group.count}
+                  </Badge>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Active Filter Indicator */}
+        {hasMultipleAssemblies && selectedAssemblyFilter !== null && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-md border bg-muted/50 text-sm">
+            <Filter className="h-4 w-4 text-purple-600 dark:text-purple-400 flex-shrink-0" />
+            <span>
+              Showing <strong>{activeFilterName}</strong>
+              <span className="text-muted-foreground ml-1">({filteredTemplateItems.length} items)</span>
+            </span>
+            <Button variant="outline" size="sm" className="ml-auto h-7" onClick={() => setSelectedAssemblyFilter(null)}>
+              <X className="h-3.5 w-3.5 mr-1" />
+              Show All
+            </Button>
+          </div>
+        )}
+
         {/* Items Table */}
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Template Items</CardTitle>
-            <Button size="sm" onClick={openAddItem}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Item
-            </Button>
+          <CardHeader className="flex flex-row items-center justify-between gap-2">
+            <CardTitle className="flex-shrink-0">Template Items</CardTitle>
+            <div className="flex items-center gap-2">
+              {selectedTemplate.items.length > 0 && (
+                <div className="relative max-w-[200px]">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input
+                    className="h-8 pl-8 pr-8 text-sm"
+                    placeholder="Search items..."
+                    value={templateItemSearch}
+                    onChange={e => setTemplateItemSearch(e.target.value)}
+                  />
+                  {templateItemSearch && (
+                    <button
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      onClick={() => setTemplateItemSearch('')}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              )}
+              <Button size="sm" onClick={openAddItem}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Item
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
+            {/* Empty: no items in template at all */}
             {selectedTemplate.items.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 <FileText className="h-12 w-12 mx-auto mb-3 opacity-50" />
                 <p>No items yet. Add parts to this template.</p>
+              </div>
+            ) : filteredTemplateItems.length === 0 ? (
+              /* Empty: items exist but filter/search yields nothing */
+              <div className="text-center py-8 text-muted-foreground">
+                <Filter className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                {templateItemSearch ? (
+                  <p>No items match "{templateItemSearch}" in this view.</p>
+                ) : (
+                  <p>No items in this assembly.</p>
+                )}
+                {selectedAssemblyFilter !== null && (
+                  <Button variant="outline" size="sm" className="mt-3" onClick={() => setSelectedAssemblyFilter(null)}>
+                    Show All Items
+                  </Button>
+                )}
               </div>
             ) : (
               <div className="overflow-auto border rounded-lg">
@@ -281,34 +542,63 @@ export function Templates() {
                       <th className="text-left p-2 whitespace-nowrap">Part Number</th>
                       <th className="text-left p-2">Description</th>
                       <th className="text-left p-2 whitespace-nowrap">Location</th>
-                      <th className="text-left p-2 whitespace-nowrap">Assembly Group</th>
+                      {showAssemblyColumn && (
+                        <th className="text-left p-2 whitespace-nowrap">Assembly Group</th>
+                      )}
                       <th className="text-center p-2 whitespace-nowrap">Qty/Unit</th>
                       <th className="text-right p-2 whitespace-nowrap">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {selectedTemplate.items.map(item => (
-                      <tr key={item.id} className="border-t">
-                        <td className="p-2 font-mono whitespace-nowrap">{item.part_number}</td>
-                        <td className="p-2 text-muted-foreground max-w-[200px] truncate">
-                          {item.description || '-'}
-                        </td>
-                        <td className="p-2 whitespace-nowrap">{item.location || '-'}</td>
-                        <td className="p-2 whitespace-nowrap text-xs font-mono text-muted-foreground">
-                          {item.assembly_group || '-'}
-                        </td>
-                        <td className="p-2 text-center">{item.qty_per_unit}</td>
-                        <td className="p-2 text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditItem(item)}>
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => confirmDeleteItem(item)}>
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
+                    {sortedFilteredItems.map((item, idx) => (
+                      <React.Fragment key={item.id}>
+                        {/* Assembly Group Header Row (All Items view with multiple assemblies) */}
+                        {selectedAssemblyFilter === null && hasMultipleAssemblies && shouldShowAssemblyHeader(idx) && (
+                          <tr>
+                            <td
+                              colSpan={showAssemblyColumn ? 6 : 5}
+                              className="py-2 px-3 border-l-[3px] border-l-purple-600 bg-purple-50 dark:bg-purple-950/20"
+                            >
+                              <div className="flex items-center gap-2">
+                                {item.assembly_group ? (
+                                  <Package className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                                ) : (
+                                  <Puzzle className="h-4 w-4 text-muted-foreground" />
+                                )}
+                                <strong className="text-sm">{item.assembly_group || 'Loose Parts'}</strong>
+                                <Badge variant="secondary" className="text-xs">
+                                  {getAssemblyGroupCount(item.assembly_group)} parts
+                                </Badge>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+
+                        {/* Item Row */}
+                        <tr className="border-t">
+                          <td className="p-2 font-mono whitespace-nowrap">{item.part_number}</td>
+                          <td className="p-2 text-muted-foreground max-w-[200px] truncate">
+                            {item.description || '-'}
+                          </td>
+                          <td className="p-2 whitespace-nowrap">{item.location || '-'}</td>
+                          {showAssemblyColumn && (
+                            <td className="p-2 whitespace-nowrap text-xs font-mono text-muted-foreground">
+                              {item.assembly_group || '-'}
+                            </td>
+                          )}
+                          <td className="p-2 text-center">{item.qty_per_unit}</td>
+                          <td className="p-2 text-right">
+                            <div className="flex justify-end gap-1">
+                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditItem(item)}>
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => confirmDeleteItem(item)}>
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      </React.Fragment>
                     ))}
                   </tbody>
                 </table>
@@ -414,7 +704,7 @@ export function Templates() {
             <DialogFooter>
               <Button variant="outline" onClick={() => setShowTemplateDialog(false)}>Cancel</Button>
               <Button onClick={handleSaveTemplate} disabled={!templateForm.name.trim()}>
-                Save
+                Save Changes
               </Button>
             </DialogFooter>
           </DialogContent>

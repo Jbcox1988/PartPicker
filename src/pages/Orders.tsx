@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Search, Upload, Trash2, ArrowUpDown, AlertCircle, Clock, CheckCircle2, Ban, Eye, EyeOff, Download, List, Wrench } from 'lucide-react';
+import { Plus, Search, Upload, Trash2, ArrowUpDown, AlertCircle, Clock, CheckCircle2, Ban, Eye, EyeOff, Download, List, Wrench, AlertTriangle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +11,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
@@ -30,6 +31,9 @@ export function Orders() {
   const [sortBy, setSortBy] = useState<SortOption>('due-date');
   const [selectedAssemblies, setSelectedAssemblies] = useState<Set<string>>(new Set());
   const [showNewOrderDialog, setShowNewOrderDialog] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; soNumber: string } | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
   const [newOrder, setNewOrder] = useState({
     so_number: '',
     po_number: '',
@@ -110,11 +114,21 @@ export function Orders() {
     setShowNewOrderDialog(false);
   };
 
-  const handleDeleteOrder = async (id: string, soNumber: string) => {
-    if (confirm(`Delete order SO-${soNumber}? This cannot be undone.`)) {
-      await deleteOrder(id);
-    }
+  const handleDeleteOrder = (id: string, soNumber: string) => {
+    setDeleteTarget({ id, soNumber });
+    setDeleteConfirmText('');
   };
+
+  const confirmDeleteOrder = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+    await deleteOrder(deleteTarget.id);
+    setIsDeleting(false);
+    setDeleteTarget(null);
+    setDeleteConfirmText('');
+  };
+
+  const CONFIRM_PHRASE = 'confirm delete';
 
   const handleExportOrders = () => {
     exportOrdersSummaryToExcel(orders);
@@ -379,6 +393,72 @@ export function Orders() {
           })}
         </div>
       )}
+
+      {/* Delete Order Confirmation Dialog */}
+      <Dialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteTarget(null);
+            setDeleteConfirmText('');
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600 dark:text-red-400">
+              <AlertTriangle className="h-5 w-5" />
+              Delete Order
+            </DialogTitle>
+            <DialogDescription>
+              This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4 space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Are you sure you want to delete order{' '}
+              <span className="font-semibold text-foreground">SO-{deleteTarget?.soNumber}</span>?
+              All tools, line items, and pick records will be permanently removed.
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="delete-confirm" className="text-sm">
+                Type the phrase below to confirm:
+              </Label>
+              <Input
+                id="delete-confirm"
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                autoComplete="off"
+                className="font-mono"
+              />
+              <p className="text-sm font-mono font-semibold text-red-600 dark:text-red-400">
+                {CONFIRM_PHRASE}
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDeleteTarget(null);
+                setDeleteConfirmText('');
+              }}
+              disabled={isDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDeleteOrder}
+              disabled={deleteConfirmText.toLowerCase() !== CONFIRM_PHRASE || isDeleting}
+            >
+              {isDeleting ? 'Deleting...' : 'Delete Order'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* New Order Dialog */}
       <Dialog open={showNewOrderDialog} onOpenChange={setShowNewOrderDialog}>

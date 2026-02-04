@@ -134,13 +134,13 @@ function ToolStatusIndicators({
             }}
             disabled={disabled}
             className={cn(
-              "w-7 h-7 rounded text-xs font-medium transition-all",
+              "relative rounded text-xs font-bold transition-all cursor-pointer",
               "flex items-center justify-center",
               isComplete
-                ? "bg-green-500 text-white hover:bg-red-500 cursor-pointer"
+                ? "bg-green-500 text-white hover:bg-red-500 min-w-[1.75rem] h-7 px-1"
                 : isPartial
-                  ? "bg-amber-500 text-white hover:bg-amber-600 cursor-pointer"
-                  : "bg-gray-200 dark:bg-gray-700 hover:bg-blue-200 dark:hover:bg-blue-800 cursor-pointer",
+                  ? "bg-amber-500 text-white hover:bg-amber-600 min-w-[1.75rem] h-7 px-1"
+                  : "bg-gray-200 dark:bg-gray-700 hover:bg-blue-200 dark:hover:bg-blue-800 min-w-[1.75rem] h-7 px-1",
               isCurrent && !isComplete && "ring-2 ring-blue-500 ring-offset-1",
               disabled && "opacity-50 cursor-not-allowed"
             )}
@@ -152,12 +152,12 @@ function ToolStatusIndicators({
                   : `${tool.tool_number}: Click to pick ${needed}`
             }
           >
-            {isComplete ? (
-              <Check className="h-3.5 w-3.5" />
-            ) : isPartial ? (
-              <span className="text-[10px] font-bold">{picked}/{needed}</span>
-            ) : (
-              toolLabel
+            {toolLabel}
+            {isComplete && (
+              <Check className="h-2.5 w-2.5 ml-0.5" strokeWidth={3} />
+            )}
+            {isPartial && (
+              <span className="text-[9px] ml-0.5 opacity-90">{picked}/{needed}</span>
             )}
           </button>
         );
