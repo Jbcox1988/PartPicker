@@ -267,6 +267,29 @@ export function usePicks(orderId: string | undefined) {
       // Get current allocations for each tool
       const allToolPicks = getPicksForAllTools();
 
+      // Look up context for undo audit records (needed when reducing allocations)
+      const lineItem = lineItemsWithPicks.find(li => li.id === lineItemId);
+      const partNumber = lineItem?.part_number || '';
+      const orderIdForUndo = lineItem?.order_id || orderId || '';
+
+      let soNumber = '';
+      if (orderIdForUndo) {
+        const { data: orderData } = await supabase
+          .from('orders')
+          .select('so_number')
+          .eq('id', orderIdForUndo)
+          .single();
+        soNumber = orderData?.so_number || '';
+      }
+
+      // Look up tool numbers for audit records
+      const toolIds = Array.from(newAllocations.keys());
+      const { data: toolsData } = await supabase
+        .from('tools')
+        .select('id, tool_number')
+        .in('id', toolIds);
+      const toolNumberMap = new Map((toolsData || []).map((t: any) => [t.id, t.tool_number as string]));
+
       // Process each tool's allocation change
       for (const [toolId, targetQty] of newAllocations) {
         const toolMap = allToolPicks.get(toolId);
@@ -290,11 +313,32 @@ export function usePicks(orderId: string | undefined) {
           // Need to remove picks - delete picks starting from newest
           const pickHistory = getPickHistory(lineItemId, toolId);
           let qtyToRemove = Math.abs(delta);
+          const toolNumber = toolNumberMap.get(toolId) || '';
 
           for (const pick of pickHistory) {
             if (qtyToRemove <= 0) break;
 
             if (pick.qty_picked <= qtyToRemove) {
+              // Insert undo audit record before deleting
+              const { error: auditError } = await supabase
+                .from('pick_undos')
+                .insert({
+                  original_pick_id: pick.id,
+                  line_item_id: pick.line_item_id,
+                  tool_id: pick.tool_id,
+                  qty_picked: pick.qty_picked,
+                  picked_by: pick.picked_by,
+                  notes: pick.notes,
+                  picked_at: pick.picked_at,
+                  part_number: partNumber,
+                  tool_number: toolNumber,
+                  so_number: soNumber,
+                  order_id: orderIdForUndo,
+                  undone_by: pickedBy || 'Unknown',
+                });
+
+              if (auditError) throw auditError;
+
               // Delete the entire pick record
               const { error } = await supabase
                 .from('picks')
@@ -304,8 +348,29 @@ export function usePicks(orderId: string | undefined) {
               if (error) throw error;
               qtyToRemove -= pick.qty_picked;
             } else {
-              // Partial removal: delete old pick and create new one with reduced qty
-              const newQty = pick.qty_picked - qtyToRemove;
+              // Partial removal: audit the removed portion, then replace pick with reduced qty
+              const removedQty = qtyToRemove;
+              const newQty = pick.qty_picked - removedQty;
+
+              // Insert undo audit record for the removed portion
+              const { error: auditError } = await supabase
+                .from('pick_undos')
+                .insert({
+                  original_pick_id: pick.id,
+                  line_item_id: pick.line_item_id,
+                  tool_id: pick.tool_id,
+                  qty_picked: removedQty,
+                  picked_by: pick.picked_by,
+                  notes: pick.notes,
+                  picked_at: pick.picked_at,
+                  part_number: partNumber,
+                  tool_number: toolNumber,
+                  so_number: soNumber,
+                  order_id: orderIdForUndo,
+                  undone_by: pickedBy || 'Unknown',
+                });
+
+              if (auditError) throw auditError;
 
               // Delete the original pick
               const { error: deleteError } = await supabase

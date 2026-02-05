@@ -109,7 +109,7 @@ src/
 
 - **Order Management**: Create, import, and track sales orders
 - **Multi-Tool Support**: Orders can have multiple tools, each with independent picking
-- **Picking Interface**: Touch-optimized with swipe gestures on mobile
+- **Picking Interface**: Touch-optimized for mobile warehouse use
 - **Keyboard Navigation**: Arrow keys or j/k to navigate, Enter/Space to pick (desktop)
 - **Batch Picking**: "Pick all in location" feature for efficient warehouse operations
 - **Low Stock Warnings**: Amber highlighting for items with insufficient stock
@@ -166,7 +166,6 @@ Copy `.env.example` to `.env` and configure:
 
 The app is optimized for warehouse use on mobile devices:
 - Minimum 48px touch targets for gloved hands
-- Swipe-to-pick gestures in picking interface
 - Safe area support for notched devices
 - Collapsible search on mobile header
 - Responsive layouts with mobile-first approach

@@ -27,11 +27,9 @@ const Checkbox = React.forwardRef<HTMLButtonElement, CheckboxProps>(
       )}
       {...props}
     >
-      {checked && (
-        <span className="flex items-center justify-center text-current">
-          <Check className="h-4 w-4" />
-        </span>
-      )}
+      <span className="flex items-center justify-center text-current h-full w-full">
+        {checked && <Check className="h-4 w-4" />}
+      </span>
     </button>
   )
 )

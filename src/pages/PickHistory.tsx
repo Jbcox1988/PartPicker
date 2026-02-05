@@ -9,7 +9,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { supabase } from '@/lib/supabase';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { exportPickHistoryToExcel, type PickHistoryItem, type PickUndoHistoryItem, type ActivityLogExportItem } from '@/lib/excelExport';
-import { format, startOfDay, endOfDay, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
+import { format, parseISO, startOfDay, endOfDay, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 import {
   Clock,
   RefreshCw,
@@ -1185,7 +1185,7 @@ export function PickHistory() {
                   {Object.entries(groupedActivities).map(([date, dayActivities]) => (
                     <div key={date}>
                       <h3 className="text-sm font-semibold text-muted-foreground mb-3 sticky top-0 bg-background py-1 flex items-center justify-between">
-                        <span>{format(new Date(date), 'EEEE, MMMM d, yyyy')}</span>
+                        <span>{format(parseISO(date), 'EEEE, MMMM d, yyyy')}</span>
                         <Badge variant="secondary" className="text-xs">
                           {dayActivities.length} {dayActivities.length === 1 ? 'record' : 'records'}
                         </Badge>

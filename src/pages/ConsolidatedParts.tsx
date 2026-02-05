@@ -282,6 +282,7 @@ export function ConsolidatedParts() {
   const [expandedParts, setExpandedParts] = useState<Set<string>>(new Set());
   const [showCompleted, setShowCompleted] = useState(false);
   const [hideOutOfStock, setHideOutOfStock] = useState(false);
+  const [showOutOfStockOnly, setShowOutOfStockOnly] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>(() => {
     const saved = localStorage.getItem(CONSOLIDATED_SORT_PREFERENCE_KEY);
     return (saved as SortMode) || 'part_number';
@@ -422,11 +423,18 @@ export function ConsolidatedParts() {
 
     const matchesStock = !hideOutOfStock || (part.qty_available !== null && part.qty_available !== 0);
 
+    const matchesOutOfStockOnly = !showOutOfStockOnly || part.qty_available === 0;
+
     const matchesAssembly = selectedAssemblies.size === 0
       || part.orders.some(o => !!o.tool_model && selectedAssemblies.has(o.tool_model));
 
-    return matchesSearch && matchesCompleted && matchesOrder && matchesStock && matchesAssembly;
+    return matchesSearch && matchesCompleted && matchesOrder && matchesStock && matchesOutOfStockOnly && matchesAssembly;
   });
+
+  // Count out of stock parts for badge display
+  const outOfStockCount = useMemo(() => {
+    return parts.filter(part => part.qty_available === 0).length;
+  }, [parts]);
 
   // Sort and group filtered parts
   const { sortedParts, locationGroups, assemblyGroups } = useMemo(() => {
@@ -692,9 +700,27 @@ export function ConsolidatedParts() {
                 <label className="flex items-center gap-2 cursor-pointer select-none">
                   <Checkbox
                     checked={hideOutOfStock}
-                    onCheckedChange={(checked) => setHideOutOfStock(checked === true)}
+                    onCheckedChange={(checked) => {
+                      setHideOutOfStock(checked === true);
+                      if (checked) setShowOutOfStockOnly(false);
+                    }}
                   />
                   <span className="text-sm font-medium">Hide out of stock</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <Checkbox
+                    checked={showOutOfStockOnly}
+                    onCheckedChange={(checked) => {
+                      setShowOutOfStockOnly(checked === true);
+                      if (checked) setHideOutOfStock(false);
+                    }}
+                  />
+                  <span className="text-sm font-medium">Out of stock only</span>
+                  {outOfStockCount > 0 && (
+                    <Badge variant="secondary" className="text-xs">
+                      {outOfStockCount}
+                    </Badge>
+                  )}
                 </label>
               </div>
               {(debouncedSearch || hasActiveFilters) && (

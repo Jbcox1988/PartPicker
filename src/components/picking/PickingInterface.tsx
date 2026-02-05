@@ -148,6 +148,10 @@ export function PickingInterface({
     const saved = localStorage.getItem('picking-hide-completed');
     return saved === 'true';
   });
+  const [showOutOfStockOnly, setShowOutOfStockOnly] = useState(() => {
+    const saved = localStorage.getItem('picking-show-out-of-stock');
+    return saved === 'true';
+  });
 
   // Persist sort preference
   useEffect(() => {
@@ -158,6 +162,11 @@ export function PickingInterface({
   useEffect(() => {
     localStorage.setItem('picking-hide-completed', String(hideCompleted));
   }, [hideCompleted]);
+
+  // Persist out of stock filter preference
+  useEffect(() => {
+    localStorage.setItem('picking-show-out-of-stock', String(showOutOfStockOnly));
+  }, [showOutOfStockOnly]);
 
   const toolPicks = getPicksForTool(tool.id);
   const allToolsPicksMap = useMemo(() => getPicksForAllTools(), [getPicksForAllTools]);
@@ -173,10 +182,14 @@ export function PickingInterface({
   }).length;
 
   // Sort and group items
-  const { sortedItems, locationGroups, assemblyGroups, hiddenCount } = useMemo(() => {
+  const { sortedItems, locationGroups, assemblyGroups, hiddenCount, outOfStockCount } = useMemo(() => {
     // Filter out completed items if hideCompleted is true
     let items = [...filteredLineItems];
     let hiddenItemsCount = 0;
+    let outOfStockItemsCount = 0;
+
+    // Count items with zero stock
+    outOfStockItemsCount = items.filter(item => item.qty_available === 0).length;
 
     if (hideCompleted) {
       const before = items.length;
@@ -185,6 +198,11 @@ export function PickingInterface({
         return item.qty_per_unit - pickedForTool > 0;
       });
       hiddenItemsCount = before - items.length;
+    }
+
+    // Filter to show only out of stock items if enabled
+    if (showOutOfStockOnly) {
+      items = items.filter(item => item.qty_available === 0);
     }
 
     if (sortMode === 'location') {
@@ -216,7 +234,7 @@ export function PickingInterface({
         }
       });
 
-      return { sortedItems: items, locationGroups: groups, assemblyGroups: null, hiddenCount: hiddenItemsCount };
+      return { sortedItems: items, locationGroups: groups, assemblyGroups: null, hiddenCount: hiddenItemsCount, outOfStockCount: outOfStockItemsCount };
     } else if (sortMode === 'assembly') {
       // Sort by assembly group, then by part number within each group
       items.sort((a, b) => {
@@ -245,13 +263,13 @@ export function PickingInterface({
         }
       });
 
-      return { sortedItems: items, locationGroups: null, assemblyGroups: groups, hiddenCount: hiddenItemsCount };
+      return { sortedItems: items, locationGroups: null, assemblyGroups: groups, hiddenCount: hiddenItemsCount, outOfStockCount: outOfStockItemsCount };
     } else {
       // Sort by part number (alphanumeric)
       items.sort((a, b) => alphanumericCompare(a.part_number, b.part_number));
-      return { sortedItems: items, locationGroups: null, assemblyGroups: null, hiddenCount: hiddenItemsCount };
+      return { sortedItems: items, locationGroups: null, assemblyGroups: null, hiddenCount: hiddenItemsCount, outOfStockCount: outOfStockItemsCount };
     }
-  }, [filteredLineItems, sortMode, hideCompleted, toolPicks]);
+  }, [filteredLineItems, sortMode, hideCompleted, showOutOfStockOnly, toolPicks]);
 
   // Scroll to item after data refresh (e.g., after distribute dialog save)
   useEffect(() => {
@@ -415,14 +433,13 @@ export function PickingInterface({
   }, [allTools, allToolsPicksMap]);
 
   // Check if distribute button should show for an item
-  // Shows for all multi-tool orders with incomplete tools
+  // Shows for all orders with incomplete tools (always require dialog, no quick-pick)
   const shouldShowDistribute = useCallback((item: LineItem): boolean => {
-    if (!hasMultipleTools) return false;
     if (!onBatchUpdateAllocations) return false;
     // Check if there are incomplete tools
     const remainingCount = getRemainingToolsCount(item);
     return remainingCount > 0;
-  }, [hasMultipleTools, onBatchUpdateAllocations, getRemainingToolsCount]);
+  }, [onBatchUpdateAllocations, getRemainingToolsCount]);
 
   // Handle save from distribute dialog
   const handleDistributeSave = useCallback(async (newAllocations: Map<string, number>): Promise<boolean> => {
@@ -732,7 +749,7 @@ export function PickingInterface({
               </Button>
             )}
 
-            {/* Distribute/Pick button - show for multi-tool orders */}
+            {/* Pick button - always require dialog for picking */}
             {shouldShowDistribute(item) ? (
               <Button
                 size="sm"
@@ -1017,7 +1034,7 @@ export function PickingInterface({
           {/* Bottom row: Actions */}
           {!allToolsComplete && (
             <div className="flex flex-col gap-2">
-              {/* Distribute button - only show when shortage detected and multiple tools */}
+              {/* Pick button - always require dialog for picking */}
               {shouldShowDistribute(item) ? (
                 <div className="flex gap-3">
                   <Button
@@ -1186,10 +1203,10 @@ export function PickingInterface({
           </div>
         </div>
         {/* Mobile Sort Controls */}
-        <div className="flex items-center gap-2 pb-3">
+        <div className="flex items-center gap-2 pb-3 flex-wrap">
           <ArrowUpDown className="h-4 w-4 text-muted-foreground flex-shrink-0" />
           <Select value={sortMode} onValueChange={(v) => setSortMode(v as SortMode)}>
-            <SelectTrigger className="flex-1 h-10">
+            <SelectTrigger className="flex-1 h-10 min-w-[140px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -1206,6 +1223,20 @@ export function PickingInterface({
             <span className="text-sm whitespace-nowrap">
               {hideCompleted ? <EyeOff className="h-4 w-4 inline mr-1" /> : <Eye className="h-4 w-4 inline mr-1" />}
               Hide done
+            </span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer select-none flex-shrink-0 px-2">
+            <Checkbox
+              checked={showOutOfStockOnly}
+              onCheckedChange={(checked) => setShowOutOfStockOnly(checked === true)}
+            />
+            <span className="text-sm whitespace-nowrap">
+              Out of stock
+              {outOfStockCount > 0 && (
+                <Badge variant="secondary" className="ml-1 text-xs">
+                  {outOfStockCount}
+                </Badge>
+              )}
             </span>
           </label>
         </div>
@@ -1227,6 +1258,18 @@ export function PickingInterface({
           {hiddenCount > 0 && (
             <Badge variant="secondary" className="text-xs">
               {hiddenCount} hidden
+            </Badge>
+          )}
+        </label>
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <Checkbox
+            checked={showOutOfStockOnly}
+            onCheckedChange={(checked) => setShowOutOfStockOnly(checked === true)}
+          />
+          <span className="text-sm font-medium">Out of stock only</span>
+          {outOfStockCount > 0 && (
+            <Badge variant="secondary" className="text-xs">
+              {outOfStockCount}
             </Badge>
           )}
         </label>

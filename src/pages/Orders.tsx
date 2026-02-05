@@ -202,8 +202,8 @@ export function Orders() {
               />
             </div>
 
-            {/* Status Filter Buttons - Scrollable on mobile */}
-            <div className="flex gap-2 overflow-x-auto pb-2 -mb-2 scrollbar-hide">
+            {/* Status Filter Buttons */}
+            <div className="flex flex-wrap gap-2">
               {[
                 { key: 'all', label: 'All', shortLabel: 'All', icon: List, title: 'Show all orders' },
                 { key: 'active', label: 'Active', shortLabel: 'Active', icon: Clock, title: 'Show orders in progress' },
@@ -215,7 +215,7 @@ export function Orders() {
                   variant={statusFilter === key ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setStatusFilter(key)}
-                  className="flex items-center gap-1.5 flex-shrink-0"
+                  className="flex items-center gap-1.5"
                   title={title}
                   aria-label={title}
                   aria-pressed={statusFilter === key}
@@ -226,15 +226,15 @@ export function Orders() {
                 </Button>
               ))}
 
-              {/* Divider - visible on larger screens */}
-              <div className="border-l ml-1 pl-1 sm:ml-2 sm:pl-2 flex gap-2 flex-shrink-0">
+              {/* Sort and filter controls */}
+              <div className="border-l ml-1 pl-1 sm:ml-2 sm:pl-2 flex flex-wrap gap-2">
                 {/* Hide/Show Completed Toggle (only visible when 'all' filter is active) */}
                 {statusFilter === 'all' && (
                   <Button
                     variant={hideCompleted ? 'default' : 'outline'}
                     size="sm"
                     onClick={() => setHideCompleted(!hideCompleted)}
-                    className="flex items-center gap-1 flex-shrink-0"
+                    className="flex items-center gap-1"
                     title={hideCompleted ? 'Show completed orders' : 'Hide completed orders'}
                   >
                     {hideCompleted ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -249,7 +249,7 @@ export function Orders() {
                     const currentIndex = options.indexOf(sortBy);
                     setSortBy(options[(currentIndex + 1) % options.length]);
                   }}
-                  className="flex items-center gap-1 flex-shrink-0"
+                  className="flex items-center gap-1"
                 >
                   <ArrowUpDown className="h-4 w-4" />
                   <span className="hidden sm:inline">{sortBy === 'due-date' ? 'Due Date' : sortBy === 'created' ? 'Created' : 'SO#'}</span>
