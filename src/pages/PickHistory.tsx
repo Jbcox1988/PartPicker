@@ -920,7 +920,7 @@ export function PickHistory() {
       }));
 
       const dateRange = `${format(new Date(startDate), 'MMM d')} - ${format(new Date(endDate), 'MMM d, yyyy')}`;
-      exportPickHistoryToExcel(exportData, `Activity History: ${dateRange}`, undoExport, activityLogExport);
+      await exportPickHistoryToExcel(exportData, `Activity History: ${dateRange}`, undoExport, activityLogExport);
     } catch (err) {
       console.error('Export failed:', err);
     } finally {

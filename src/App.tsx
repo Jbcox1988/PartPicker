@@ -1,19 +1,29 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { MainLayout } from '@/components/layout/MainLayout';
-import { Dashboard } from '@/pages/Dashboard';
-import { Orders } from '@/pages/Orders';
-import { OrderDetail } from '@/pages/OrderDetail';
-import { ConsolidatedParts } from '@/pages/ConsolidatedParts';
-import { ItemsToOrder } from '@/pages/ItemsToOrder';
-import { Import } from '@/pages/Import';
-import { Templates } from '@/pages/Templates';
-import { Settings } from '@/pages/Settings';
-import { Issues } from '@/pages/Issues';
-import { PickHistory } from '@/pages/PickHistory';
 import { OfflineIndicator, InstallPrompt, UpdatePrompt } from '@/components/pwa';
 import { NamePrompt } from '@/components/NamePrompt';
 import { PasswordGate } from '@/components/PasswordGate';
 import { useTheme } from '@/hooks/useTheme';
+
+const Dashboard = lazy(() => import('@/pages/Dashboard').then(m => ({ default: m.Dashboard })));
+const Orders = lazy(() => import('@/pages/Orders').then(m => ({ default: m.Orders })));
+const OrderDetail = lazy(() => import('@/pages/OrderDetail').then(m => ({ default: m.OrderDetail })));
+const ConsolidatedParts = lazy(() => import('@/pages/ConsolidatedParts').then(m => ({ default: m.ConsolidatedParts })));
+const ItemsToOrder = lazy(() => import('@/pages/ItemsToOrder').then(m => ({ default: m.ItemsToOrder })));
+const Import = lazy(() => import('@/pages/Import').then(m => ({ default: m.Import })));
+const Templates = lazy(() => import('@/pages/Templates').then(m => ({ default: m.Templates })));
+const Settings = lazy(() => import('@/pages/Settings').then(m => ({ default: m.Settings })));
+const Issues = lazy(() => import('@/pages/Issues').then(m => ({ default: m.Issues })));
+const PickHistory = lazy(() => import('@/pages/PickHistory').then(m => ({ default: m.PickHistory })));
+
+function PageSpinner() {
+  return (
+    <div className="flex items-center justify-center py-20">
+      <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+    </div>
+  );
+}
 
 function App() {
   // Initialize theme on app mount
@@ -22,18 +32,20 @@ function App() {
   return (
     <BrowserRouter>
       <MainLayout>
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/orders" element={<Orders />} />
-          <Route path="/orders/:id" element={<OrderDetail />} />
-          <Route path="/parts" element={<ConsolidatedParts />} />
-          <Route path="/items-to-order" element={<ItemsToOrder />} />
-          <Route path="/issues" element={<Issues />} />
-          <Route path="/activity" element={<PickHistory />} />
-          <Route path="/templates" element={<Templates />} />
-          <Route path="/import" element={<Import />} />
-          <Route path="/settings" element={<Settings />} />
-        </Routes>
+        <Suspense fallback={<PageSpinner />}>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/orders" element={<Orders />} />
+            <Route path="/orders/:id" element={<OrderDetail />} />
+            <Route path="/parts" element={<ConsolidatedParts />} />
+            <Route path="/items-to-order" element={<ItemsToOrder />} />
+            <Route path="/issues" element={<Issues />} />
+            <Route path="/activity" element={<PickHistory />} />
+            <Route path="/templates" element={<Templates />} />
+            <Route path="/import" element={<Import />} />
+            <Route path="/settings" element={<Settings />} />
+          </Routes>
+        </Suspense>
       </MainLayout>
 
       {/* Password Gate - must authenticate before using app */}

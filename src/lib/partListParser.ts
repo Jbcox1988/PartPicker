@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx';
+import type * as XLSX from 'xlsx';
 
 export interface PartListRecord {
   partNumber: string;
@@ -29,6 +29,7 @@ export async function parsePartListFile(file: File): Promise<ParsePartListResult
   const errors: string[] = [];
 
   try {
+    const XLSX = await import('xlsx');
     const data = await file.arrayBuffer();
     const workbook = XLSX.read(data, { type: 'array' });
 

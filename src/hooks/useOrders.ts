@@ -3,6 +3,12 @@ import { supabase } from '@/lib/supabase';
 import { fetchAllFromTable } from '@/lib/supabasePagination';
 import type { Order, OrderWithProgress, Tool, LineItem, ImportedOrder } from '@/types';
 
+interface OrderProgressRow {
+  total_items: number;
+  picked_items: number;
+  progress_percent: number;
+}
+
 export function useOrders() {
   const [orders, setOrders] = useState<OrderWithProgress[]>([]);
   const [loading, setLoading] = useState(true);
@@ -13,58 +19,27 @@ export function useOrders() {
       setLoading(true);
       setError(null);
 
-      // Fetch orders with tools
+      // Fetch orders with tools and server-computed progress in a single query
       const { data: ordersData, error: ordersError } = await supabase
         .from('orders')
         .select(`
           *,
-          tools (*)
+          tools (*),
+          order_progress (total_items, picked_items, progress_percent)
         `)
         .order('created_at', { ascending: false });
 
       if (ordersError) throw ordersError;
 
-      // Fetch line items and picks for progress calculation
-      // Use pagination to handle >1000 rows
-      const [lineItemsData, picksData] = await Promise.all([
-        fetchAllFromTable<{ id: string; order_id: string; total_qty_needed: number }>(
-          'line_items',
-          'id, order_id, total_qty_needed'
-        ),
-        fetchAllFromTable<{ line_item_id: string; qty_picked: number }>(
-          'picks',
-          'line_item_id, qty_picked'
-        ),
-      ]);
-
-      // Calculate progress for each order
-      const picksByLineItem = new Map<string, number>();
-      for (const pick of picksData || []) {
-        const current = picksByLineItem.get(pick.line_item_id) || 0;
-        picksByLineItem.set(pick.line_item_id, current + pick.qty_picked);
-      }
-
-      const lineItemsByOrder = new Map<string, { total: number; picked: number }>();
-      for (const item of lineItemsData || []) {
-        const current = lineItemsByOrder.get(item.order_id) || { total: 0, picked: 0 };
-        current.total += 1;
-        const qtyPicked = picksByLineItem.get(item.id) || 0;
-        if (qtyPicked >= item.total_qty_needed) {
-          current.picked += 1;
-        }
-        lineItemsByOrder.set(item.order_id, current);
-      }
-
       const ordersWithProgress: OrderWithProgress[] = (ordersData || []).map(order => {
-        const progress = lineItemsByOrder.get(order.id) || { total: 0, picked: 0 };
+        // order_progress is a 1-to-1 relation via order_id, Supabase returns it as an array
+        const progress = (order.order_progress as OrderProgressRow[] | null)?.[0];
         return {
           ...order,
           tools: order.tools || [],
-          total_items: progress.total,
-          picked_items: progress.picked,
-          progress_percent: progress.total > 0
-            ? Math.round((progress.picked / progress.total) * 100)
-            : 0,
+          total_items: progress?.total_items ?? 0,
+          picked_items: progress?.picked_items ?? 0,
+          progress_percent: progress?.progress_percent ?? 0,
         };
       });
 

@@ -1,21 +1,24 @@
-import * as XLSX from 'xlsx';
+import type * as XLSXType from 'xlsx';
+
+type XLSXModule = typeof XLSXType;
 
 /**
  * Generate and download an Excel template for importing orders
  */
-export function downloadImportTemplate(format: 'single' | 'multi' | 'single-bom' = 'single') {
+export async function downloadImportTemplate(format: 'single' | 'multi' | 'single-bom' = 'single') {
+  const XLSX = await import('xlsx');
   const workbook = XLSX.utils.book_new();
 
   if (format === 'single') {
-    createSingleToolTypeTemplate(workbook);
+    createSingleToolTypeTemplate(XLSX, workbook);
   } else if (format === 'single-bom') {
-    createSingleBomTemplate(workbook);
+    createSingleBomTemplate(XLSX, workbook);
   } else {
-    createMultiToolTypeTemplate(workbook);
+    createMultiToolTypeTemplate(XLSX, workbook);
   }
 
   // Create Instructions sheet
-  createInstructionsSheet(workbook);
+  createInstructionsSheet(XLSX, workbook);
 
   // Download
   let filename: string;
@@ -25,7 +28,7 @@ export function downloadImportTemplate(format: 'single' | 'multi' | 'single-bom'
   XLSX.writeFile(workbook, filename);
 }
 
-function createSingleToolTypeTemplate(workbook: XLSX.WorkBook) {
+function createSingleToolTypeTemplate(XLSX: XLSXModule, workbook: XLSXType.WorkBook) {
   // Order Info sheet
   const orderInfoData = [
     ['Order Information', ''],
@@ -63,7 +66,7 @@ function createSingleToolTypeTemplate(workbook: XLSX.WorkBook) {
   XLSX.utils.book_append_sheet(workbook, partsSheet, 'Parts');
 }
 
-function createSingleBomTemplate(workbook: XLSX.WorkBook) {
+function createSingleBomTemplate(XLSX: XLSXModule, workbook: XLSXType.WorkBook) {
   // Order Info sheet (same as single)
   const orderInfoData = [
     ['Order Information', ''],
@@ -106,7 +109,7 @@ function createSingleBomTemplate(workbook: XLSX.WorkBook) {
   XLSX.utils.book_append_sheet(workbook, partsSheet, 'Parts');
 }
 
-function createMultiToolTypeTemplate(workbook: XLSX.WorkBook) {
+function createMultiToolTypeTemplate(XLSX: XLSXModule, workbook: XLSXType.WorkBook) {
   // Order Info sheet
   const orderInfoData = [
     ['Order Information', ''],
@@ -159,7 +162,7 @@ function createMultiToolTypeTemplate(workbook: XLSX.WorkBook) {
   XLSX.utils.book_append_sheet(workbook, tool450QSheet, '450Q');
 }
 
-function createInstructionsSheet(workbook: XLSX.WorkBook) {
+function createInstructionsSheet(XLSX: XLSXModule, workbook: XLSXType.WorkBook) {
   const instructionsData = [
     ['Import Template Instructions'],
     [''],

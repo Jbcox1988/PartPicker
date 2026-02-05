@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx';
+import type * as XLSX from 'xlsx';
 import type { ImportedOrder, ImportedTool, ImportedLineItem } from '@/types';
 import { resolveHierarchyLeaves } from './hierarchyUtils';
 import type { HierarchyRow } from './hierarchyUtils';
@@ -160,6 +160,7 @@ export async function parseExcelFile(file: File): Promise<ParseResult> {
   const warnings: string[] = [];
 
   try {
+    const XLSX = await import('xlsx');
     const data = await file.arrayBuffer();
     const workbook = XLSX.read(data, { type: 'array', cellStyles: true });
 
@@ -465,6 +466,7 @@ export async function parseCsvFile(file: File): Promise<ParseResult> {
   const warnings: string[] = [];
 
   try {
+    const XLSX = await import('xlsx');
     const text = await file.text();
     const workbook = XLSX.read(text, { type: 'string' });
     const sheetName = workbook.SheetNames[0];
@@ -571,7 +573,7 @@ export async function parseCsvFile(file: File): Promise<ParseResult> {
 /**
  * Parse Order Info sheet to extract header information
  */
-function parseOrderInfoSheet(sheet: XLSX.WorkSheet): OrderInfo {
+function parseOrderInfoSheet(XLSX: typeof import('xlsx'), sheet: XLSX.WorkSheet): OrderInfo {
   const info: OrderInfo = {};
 
   const jsonData = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
@@ -616,7 +618,7 @@ function parseOrderInfoSheet(sheet: XLSX.WorkSheet): OrderInfo {
 /**
  * Parse a tool type sheet (e.g., "230Q" sheet with parts for that tool type)
  */
-function parseToolTypeSheet(sheet: XLSX.WorkSheet, sheetName: string): ToolTypeSheet | null {
+function parseToolTypeSheet(XLSX: typeof import('xlsx'), sheet: XLSX.WorkSheet, sheetName: string): ToolTypeSheet | null {
   const jsonData = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
     header: 1,
     defval: ''
@@ -709,6 +711,7 @@ export async function parseEnhancedExcelFile(file: File): Promise<ParseResult> {
   const warnings: string[] = [];
 
   try {
+    const XLSX = await import('xlsx');
     const data = await file.arrayBuffer();
     const workbook = XLSX.read(data, { type: 'array', cellStyles: true });
 
@@ -727,7 +730,7 @@ export async function parseEnhancedExcelFile(file: File): Promise<ParseResult> {
     }
 
     const orderInfoSheet = workbook.Sheets[orderInfoSheetName];
-    const orderInfo = parseOrderInfoSheet(orderInfoSheet);
+    const orderInfo = parseOrderInfoSheet(XLSX, orderInfoSheet);
 
     // Extract SO number from order info or filename
     const soMatch = file.name.match(/SO[- ]?(\d+)/i);
@@ -815,7 +818,7 @@ export async function parseEnhancedExcelFile(file: File): Promise<ParseResult> {
 
       for (const sheetName of otherSheets) {
         const sheet = workbook.Sheets[sheetName];
-        const toolTypeData = parseToolTypeSheet(sheet, sheetName);
+        const toolTypeData = parseToolTypeSheet(XLSX, sheet, sheetName);
 
         if (!toolTypeData) {
           warnings.push(`Could not parse sheet "${sheetName}" - skipping`);

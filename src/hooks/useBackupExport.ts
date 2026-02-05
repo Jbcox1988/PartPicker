@@ -47,7 +47,7 @@ export function useBackupExport() {
       };
 
       // Export to Excel
-      exportFullBackupToExcel(backupData);
+      await exportFullBackupToExcel(backupData);
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error occurred');

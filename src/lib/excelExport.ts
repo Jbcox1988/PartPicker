@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx';
+import type * as XLSX from 'xlsx';
 import type { Order, Tool, Pick, OrderWithProgress, ConsolidatedPart, LineItemWithPicks, ItemToOrder, LineItem, Issue, PartsCatalogItem, BOMTemplate, BOMTemplateItem, PickUndo } from '@/types';
 import { format } from 'date-fns';
 
@@ -6,16 +6,18 @@ import { format } from 'date-fns';
  * Helper to trigger file download in the browser
  */
 function downloadWorkbook(workbook: XLSX.WorkBook, filename: string) {
-  const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-  const blob = new Blob([wbout], { type: 'application/octet-stream' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  import('xlsx').then(XLSX => {
+    const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([wbout], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  });
 }
 
 /**
@@ -52,12 +54,13 @@ function setColumnWidths(ws: XLSX.WorkSheet, widths: number[]) {
 /**
  * Export a single order with line items and pick status
  */
-export function exportOrderToExcel(
+export async function exportOrderToExcel(
   order: Order,
   tools: Tool[],
   lineItemsWithPicks: LineItemWithPicks[],
   picks: Pick[]
 ) {
+  const XLSX = await import('xlsx');
   const workbook = XLSX.utils.book_new();
 
   // Sheet 1: Order Summary
@@ -161,7 +164,8 @@ export function exportOrderToExcel(
 /**
  * Export all orders summary to Excel
  */
-export function exportOrdersSummaryToExcel(orders: OrderWithProgress[]) {
+export async function exportOrdersSummaryToExcel(orders: OrderWithProgress[]) {
+  const XLSX = await import('xlsx');
   const workbook = XLSX.utils.book_new();
 
   // Orders Summary Sheet
@@ -237,7 +241,8 @@ export function exportOrdersSummaryToExcel(orders: OrderWithProgress[]) {
 /**
  * Export consolidated parts list to Excel
  */
-export function exportConsolidatedPartsToExcel(parts: ConsolidatedPart[]) {
+export async function exportConsolidatedPartsToExcel(parts: ConsolidatedPart[]) {
+  const XLSX = await import('xlsx');
   const workbook = XLSX.utils.book_new();
 
   // Main Parts Sheet
@@ -360,7 +365,8 @@ export interface ActivityLogExportItem {
   description: string | null;
 }
 
-export function exportPickHistoryToExcel(picks: PickHistoryItem[], title?: string, undos?: PickUndoHistoryItem[], activityLogs?: ActivityLogExportItem[]) {
+export async function exportPickHistoryToExcel(picks: PickHistoryItem[], title?: string, undos?: PickUndoHistoryItem[], activityLogs?: ActivityLogExportItem[]) {
+  const XLSX = await import('xlsx');
   const workbook = XLSX.utils.book_new();
 
   // Pick History Sheet
@@ -518,7 +524,8 @@ export function exportPickHistoryToExcel(picks: PickHistoryItem[], title?: strin
 /**
  * Export items to order list to Excel
  */
-export function exportItemsToOrderToExcel(items: ItemToOrder[]) {
+export async function exportItemsToOrderToExcel(items: ItemToOrder[]) {
+  const XLSX = await import('xlsx');
   const workbook = XLSX.utils.book_new();
 
   // Main Items Sheet
@@ -608,7 +615,8 @@ export function exportItemsToOrderToExcel(items: ItemToOrder[]) {
  * Export part numbers to a simple Excel file with single column
  * Used for copying to admin website to generate reports
  */
-export function exportPartNumbersToExcel(partNumbers: string[]) {
+export async function exportPartNumbersToExcel(partNumbers: string[]) {
+  const XLSX = await import('xlsx');
   const workbook = XLSX.utils.book_new();
 
   // Simple sheet with part numbers
@@ -639,7 +647,8 @@ export interface BackupData {
   pickUndos?: PickUndo[];
 }
 
-export function exportFullBackupToExcel(data: BackupData) {
+export async function exportFullBackupToExcel(data: BackupData) {
+  const XLSX = await import('xlsx');
   const workbook = XLSX.utils.book_new();
 
   // Create lookup maps for human-readable references
