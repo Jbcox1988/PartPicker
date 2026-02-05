@@ -111,21 +111,19 @@ export function PrintTagDialog({
               }}
             >
               <div className="flex-1 flex flex-col justify-between min-w-0 overflow-hidden">
-                <div className="flex justify-between items-start gap-1" style={{ fontSize: '11px' }}>
-                  <span className="font-black font-mono truncate min-w-0 flex-1" style={{ fontSize: '14px' }}>
+                <div className="flex justify-between items-baseline gap-1">
+                  <span className="font-black font-mono truncate min-w-0 flex-1" style={{ fontSize: '13px' }}>
                     {firstTag.partNumber}
                   </span>
-                  <span className="text-gray-500 font-medium flex-shrink-0">Qty: {firstTag.qtyPicked}</span>
+                  <span className="text-gray-500 font-medium flex-shrink-0" style={{ fontSize: '10px' }}>Qty: {firstTag.qtyPicked}</span>
                 </div>
-                <div className="flex justify-between items-center gap-1 overflow-hidden" style={{ fontSize: '9px' }}>
-                  <span className="text-gray-600 flex-shrink-0" style={{ fontSize: '9px' }}>
-                    LOC: {firstTag.location || 'N/A'}
-                  </span>
-                  <span className="truncate text-gray-700 overflow-hidden min-w-0">
-                    {firstTag.description || '-'}
-                  </span>
+                <div className="truncate text-gray-600" style={{ fontSize: '8px' }}>
+                  {firstTag.location || 'N/A'}
                 </div>
-                <div className="flex justify-between items-end" style={{ fontSize: '8px' }}>
+                <div className="truncate text-gray-700" style={{ fontSize: '8px' }}>
+                  {firstTag.description || '-'}
+                </div>
+                <div className="flex justify-between items-end" style={{ fontSize: '7px' }}>
                   <span className="text-gray-600">
                     {firstTag.soNumber} / {firstTag.toolNumber}
                   </span>
@@ -206,8 +204,10 @@ function generateTagsHTML(tagsArray: TagData[]): string {
               <span class="part-number">${escapeHtml(partNumber)}</span>
               <span class="tag-count">Qty: ${qtyPicked}</span>
             </div>
+            <div class="tag-row-location">
+              <span class="location">${escapeHtml(location || 'N/A')}</span>
+            </div>
             <div class="tag-row-middle">
-              <span class="location">LOC: ${escapeHtml(location || 'N/A')}</span>
               <span class="description">${escapeHtml(description || '-')}</span>
             </div>
             <div class="tag-row-bottom">
@@ -247,13 +247,13 @@ function generateTagsHTML(tagsArray: TagData[]): string {
         body {
           font-family: Arial, sans-serif;
           font-size: 10px;
-          line-height: 1.2;
+          line-height: 1.1;
         }
 
         .tag {
           width: 3.4in;
           height: 0.66in;
-          padding: 0.03in 0.06in 0.03in 0.12in;
+          padding: 0.02in 0.06in 0.02in 0.12in;
           page-break-after: always;
         }
 
@@ -291,31 +291,36 @@ function generateTagsHTML(tagsArray: TagData[]): string {
         .tag-row-top {
           display: flex;
           justify-content: space-between;
-          align-items: flex-start;
-          font-size: 11px;
+          align-items: baseline;
           gap: 0.05in;
         }
 
-        .tag-row-middle {
-          font-size: 9px;
-          display: flex;
-          align-items: center;
-          gap: 0.08in;
-          min-width: 0;
+        .tag-row-location {
+          font-size: 8px;
           overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .tag-row-middle {
+          font-size: 8px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          min-width: 0;
         }
 
         .tag-row-bottom {
           display: flex;
           justify-content: space-between;
           align-items: flex-end;
-          font-size: 8px;
+          font-size: 7px;
         }
 
         .part-number {
           font-weight: 900;
           font-family: 'Courier New', monospace;
-          font-size: 14px;
+          font-size: 13px;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
@@ -325,23 +330,17 @@ function generateTagsHTML(tagsArray: TagData[]): string {
 
         .location {
           color: #444;
-          white-space: nowrap;
-          flex-shrink: 0;
         }
 
         .tag-count {
           color: #666;
+          font-size: 10px;
           font-weight: 500;
           flex-shrink: 0;
         }
 
         .description {
           color: #333;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-          display: block;
-          max-width: 100%;
         }
 
         .order-info {
