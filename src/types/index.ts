@@ -220,6 +220,7 @@ export interface UserSettings {
   user_name: string;
   theme: 'light' | 'dark' | 'system';
   isAuthenticated?: boolean;
+  tagPrintingEnabled?: boolean;
 }
 
 // Parts Catalog - saved part numbers and descriptions

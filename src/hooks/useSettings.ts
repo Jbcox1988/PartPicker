@@ -7,6 +7,7 @@ const defaultSettings: UserSettings = {
   user_name: '',
   theme: 'system',
   isAuthenticated: false,
+  tagPrintingEnabled: false,
 };
 
 export function useSettings() {
@@ -44,6 +45,10 @@ export function useSettings() {
     updateSettings({ isAuthenticated: true });
   };
 
+  const isTagPrintingEnabled = (): boolean => {
+    return settings.tagPrintingEnabled === true;
+  };
+
   return {
     settings,
     loaded,
@@ -51,5 +56,6 @@ export function useSettings() {
     getUserName,
     isAuthenticated,
     authenticate,
+    isTagPrintingEnabled,
   };
 }

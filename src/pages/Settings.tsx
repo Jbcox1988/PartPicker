@@ -11,7 +11,8 @@ import { useOnlineStatus, useOfflineQueue } from '@/hooks/useOffline';
 import { usePartListSync } from '@/hooks/usePartListSync';
 import { useApiSync } from '@/hooks/useApiSync';
 import { useBackupExport } from '@/hooks/useBackupExport';
-import { Download, RefreshCw, Wifi, WifiOff, Trash2, CloudOff, Upload, FileSpreadsheet, CheckCircle, AlertCircle, Database, HardDrive, ListChecks, Globe, Lock } from 'lucide-react';
+import { Download, RefreshCw, Wifi, WifiOff, Trash2, CloudOff, Upload, FileSpreadsheet, CheckCircle, AlertCircle, Database, HardDrive, ListChecks, Globe, Lock, Printer } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
 
 export function Settings() {
   const { settings, updateSettings } = useSettings();
@@ -421,6 +422,52 @@ export function Settings() {
             <p className="text-xs mt-3 p-2 bg-muted rounded">
               Tip: Export a backup regularly (weekly) and save the files to a safe location
               like OneDrive, Google Drive, or an external drive.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Tag Printing */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Printer className="h-5 w-5" />
+            Tag Printing
+          </CardTitle>
+          <CardDescription>
+            Print part tags after picking for Brother P-Touch QL500 label printer
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+            <div className="flex items-center gap-3">
+              <Printer className="h-5 w-5 text-primary" />
+              <div>
+                <p className="font-medium">Enable Tag Printing</p>
+                <p className="text-sm text-muted-foreground">
+                  Show print dialog after picking parts
+                </p>
+              </div>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <Checkbox
+                checked={settings.tagPrintingEnabled === true}
+                onCheckedChange={(checked) => updateSettings({ tagPrintingEnabled: checked === true })}
+                className="h-5 w-5"
+              />
+            </label>
+          </div>
+
+          <div className="text-sm text-muted-foreground space-y-2">
+            <p className="font-medium text-foreground">Printer Setup:</p>
+            <ul className="list-disc list-inside space-y-1 ml-2">
+              <li><strong>Printer:</strong> Brother P-Touch QL500</li>
+              <li><strong>Label Size:</strong> 0.66" x 3.4" (landscape)</li>
+              <li>Each individual part gets its own tag (qty=5 prints 5 tags)</li>
+            </ul>
+            <p className="text-xs mt-3 p-2 bg-muted rounded">
+              Tip: Set the Brother QL500 as your default printer for faster printing,
+              or select it each time in the print dialog.
             </p>
           </div>
         </CardContent>

@@ -166,46 +166,48 @@ export function PickingSection({
         </div>
       </div>
 
-      {/* Action buttons row */}
-      <div className="flex items-center gap-2 flex-wrap">
-        {/* Part Search Input */}
-        <SearchInput
-          value={searchQuery}
-          onChange={setSearchQuery}
-          placeholder="Search parts..."
-          className="w-40 sm:w-52"
-        />
+      {/* Action buttons row - sticky on mobile so filters stay accessible while picking */}
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 -mx-4 px-4 py-2 md:static md:mx-0 md:px-0 md:py-0 md:bg-transparent md:backdrop-blur-none">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Part Search Input */}
+          <SearchInput
+            value={searchQuery}
+            onChange={setSearchQuery}
+            placeholder="Search parts..."
+            className="w-40 sm:w-52"
+          />
 
-        {/* Filter by Tool Dropdown */}
-        {tools.length > 1 && (
-          <div className="flex items-center gap-1">
-            <Filter className="h-4 w-4 text-muted-foreground" />
-            <Select value={toolFilter} onValueChange={onToolFilterChange}>
-              <SelectTrigger className="h-8 w-32 sm:w-40">
-                <SelectValue placeholder="Filter" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Tools</SelectItem>
-                {tools.map((tool) => (
-                  <SelectItem key={tool.id} value={tool.id}>
-                    {tool.tool_number}{tool.tool_model ? ` [${tool.tool_model}]` : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
+          {/* Filter by Tool Dropdown */}
+          {tools.length > 1 && (
+            <div className="flex items-center gap-1">
+              <Filter className="h-4 w-4 text-muted-foreground" />
+              <Select value={toolFilter} onValueChange={onToolFilterChange}>
+                <SelectTrigger className="h-8 w-32 sm:w-40">
+                  <SelectValue placeholder="Filter" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Tools</SelectItem>
+                  {tools.map((tool) => (
+                    <SelectItem key={tool.id} value={tool.id}>
+                      {tool.tool_number}{tool.tool_model ? ` [${tool.tool_model}]` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
-        {/* Manage Tools Button */}
-        <Button variant="outline" size="sm" className="h-8" onClick={onManageToolsClick}>
-          <Settings className="h-4 w-4 sm:mr-1" />
-          <span className="hidden sm:inline">Manage Tools</span>
-        </Button>
+          {/* Manage Tools Button */}
+          <Button variant="outline" size="sm" className="h-8" onClick={onManageToolsClick}>
+            <Settings className="h-4 w-4 sm:mr-1" />
+            <span className="hidden sm:inline">Manage Tools</span>
+          </Button>
 
-        <Button variant="outline" size="sm" className="h-8 ml-auto" onClick={onAddPartClick}>
-          <Plus className="h-4 w-4 sm:mr-1" />
-          <span className="hidden sm:inline">Add Part</span>
-        </Button>
+          <Button variant="outline" size="sm" className="h-8 ml-auto" onClick={onAddPartClick}>
+            <Plus className="h-4 w-4 sm:mr-1" />
+            <span className="hidden sm:inline">Add Part</span>
+          </Button>
+        </div>
       </div>
 
       {/* Search results indicator */}
@@ -222,6 +224,7 @@ export function PickingSection({
             tool={tools.find(t => t.id === currentToolId) || tools[0]}
             allTools={tools}
             orderId={order.id}
+            soNumber={order.so_number}
             lineItems={filteredLineItems}
             lineItemsWithPicks={filteredLineItemsWithPicks}
             picks={picks}

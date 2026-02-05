@@ -28,6 +28,7 @@ import { useKeyboardNavigation } from '@/hooks/useKeyboardNavigation';
 import { cn, formatDateTime, getLocationPrefix, alphanumericCompare } from '@/lib/utils';
 import { ReportIssueDialog } from './ReportIssueDialog';
 import { DistributeInventoryDialog } from './DistributeInventoryDialog';
+import { PrintTagDialog, type TagData } from './PrintTagDialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 type SortMode = 'part_number' | 'location' | 'assembly';
@@ -38,6 +39,7 @@ interface PickingInterfaceProps {
   tool: Tool;
   allTools: Tool[];
   orderId: string;
+  soNumber: string;
   lineItems: LineItem[];
   lineItemsWithPicks: LineItemWithPicks[];
   picks: Pick[];
@@ -75,6 +77,7 @@ export function PickingInterface({
   tool,
   allTools,
   orderId,
+  soNumber,
   lineItems,
   lineItemsWithPicks,
   picks: _picks,
@@ -118,8 +121,11 @@ export function PickingInterface({
     }
     return map;
   }, [lineItemsWithPicks]);
-  const { getUserName } = useSettings();
+  const { getUserName, isTagPrintingEnabled } = useSettings();
   const [partialPickItem, setPartialPickItem] = useState<LineItem | null>(null);
+  // Tag printing state
+  const [showPrintDialog, setShowPrintDialog] = useState(false);
+  const [printTagData, setPrintTagData] = useState<TagData | TagData[] | null>(null);
   const [partialQty, setPartialQty] = useState('1');
   const [partialNote, setPartialNote] = useState('');
   // Track pending pick quantities per item (item.id -> { qty, note })
@@ -272,15 +278,31 @@ export function PickingInterface({
     const pending = pendingPicks.get(item.id);
     const qtyToPick = pending ? Math.min(pending.qty, remaining) : remaining;
     const note = pending?.note;
+    const pickedBy = getUserName();
 
     setIsSubmitting(item.id);
-    const result = await onRecordPick(item.id, tool.id, qtyToPick, getUserName(), note || undefined);
+    const result = await onRecordPick(item.id, tool.id, qtyToPick, pickedBy, note || undefined);
 
     // Check for over-pick warning (concurrent pick detection)
     if (result && 'overPickWarning' in result && result.overPickWarning) {
       setOverPickWarning(result.overPickWarning);
       // Auto-dismiss after 8 seconds
       setTimeout(() => setOverPickWarning(null), 8000);
+    }
+
+    // Trigger tag printing dialog if enabled and pick was successful
+    if (result && isTagPrintingEnabled()) {
+      setPrintTagData({
+        partNumber: item.part_number,
+        description: item.description,
+        location: item.location,
+        soNumber: soNumber,
+        toolNumber: tool.tool_number,
+        qtyPicked: qtyToPick,
+        pickedBy: pickedBy,
+        pickedAt: new Date(),
+      });
+      setShowPrintDialog(true);
     }
 
     // Clear the pending pick after recording
@@ -296,7 +318,7 @@ export function PickingInterface({
     setScrollToItemId(item.id);
 
     setIsSubmitting(null);
-  }, [toolPicks, tool.id, onRecordPick, getUserName, pendingPicks]);
+  }, [toolPicks, tool.id, tool.tool_number, onRecordPick, getUserName, pendingPicks, isTagPrintingEnabled, soNumber]);
 
   // Keyboard navigation for picking
   // Arrow keys to navigate, Enter/Space to pick, Escape to clear selection
@@ -407,19 +429,51 @@ export function PickingInterface({
     if (!distributeItem || !onBatchUpdateAllocations) return false;
 
     const itemIdToScrollTo = distributeItem.id;  // Track before saving
+    const pickedBy = getUserName();
+    const pickedAt = new Date();
+
+    // Calculate new picks per tool (new allocations minus current)
+    const currentAllocations = getCurrentAllocations(distributeItem);
+    const newPicksPerTool: { toolId: string; qtyPicked: number }[] = [];
+    newAllocations.forEach((newQty, toolId) => {
+      const currentQty = currentAllocations.get(toolId) || 0;
+      if (newQty > currentQty) {
+        newPicksPerTool.push({ toolId, qtyPicked: newQty - currentQty });
+      }
+    });
 
     const success = await onBatchUpdateAllocations(
       distributeItem.id,
       newAllocations,
-      getUserName()
+      pickedBy
     );
 
     if (success) {
       setScrollToItemId(itemIdToScrollTo);  // Trigger scroll after refresh
+
+      // Trigger tag printing dialog if enabled and picks were made
+      if (newPicksPerTool.length > 0 && isTagPrintingEnabled()) {
+        // Create one tag per tool that received picks
+        const tags: TagData[] = newPicksPerTool.map(({ toolId, qtyPicked }) => {
+          const tool = allTools.find(t => t.id === toolId);
+          return {
+            partNumber: distributeItem.part_number,
+            description: distributeItem.description,
+            location: distributeItem.location,
+            soNumber: soNumber,
+            toolNumber: tool?.tool_number || 'Unknown',
+            qtyPicked: qtyPicked,
+            pickedBy: pickedBy,
+            pickedAt: pickedAt,
+          };
+        });
+        setPrintTagData(tags);
+        setShowPrintDialog(true);
+      }
     }
 
     return success;
-  }, [distributeItem, onBatchUpdateAllocations, getUserName]);
+  }, [distributeItem, onBatchUpdateAllocations, getUserName, getCurrentAllocations, isTagPrintingEnabled, soNumber, allTools]);
 
   // Sets the pending pick quantity (does not record yet - user clicks checkmark to confirm)
   const handleSetPendingPick = () => {
@@ -1111,8 +1165,8 @@ export function PickingInterface({
 
   return (
     <div className="picking-interface relative pb-24 md:pb-0">
-      {/* Sticky Header with Tool Info - Mobile */}
-      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-b md:hidden -mx-4 px-4">
+      {/* Header with Tool Info - Mobile */}
+      <div className="bg-background border-b md:hidden -mx-4 px-4">
         <div className="py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 min-w-0">
@@ -1555,6 +1609,13 @@ export function PickingInterface({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Print Tag Dialog */}
+      <PrintTagDialog
+        open={showPrintDialog}
+        onOpenChange={setShowPrintDialog}
+        tagData={printTagData}
+      />
     </div>
   );
 }
