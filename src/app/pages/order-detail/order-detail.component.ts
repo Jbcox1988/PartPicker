@@ -503,6 +503,15 @@ interface PickHistoryItem {
                             <span *ngIf="tools.length === 1">{{ getRemainingForTool(item, tools[0]) }}</span>
                             <span *ngIf="tools.length > 1">All ({{ getRemainingToolsCount(item) }})</span>
                           </button>
+                          <!-- Edit Picks (when item is fully picked) -->
+                          <button class="btn btn-sm btn-outline-success"
+                                  *ngIf="isItemComplete(item)"
+                                  (click)="openDistributeDialog(item)"
+                                  [disabled]="isSubmitting === item.id"
+                                  title="Edit pick allocations">
+                            <i class="bi bi-pencil me-1"></i>
+                            Edit Picks
+                          </button>
                           <!-- Partial Pick Button (for items with qty > 1) -->
                           <button class="btn btn-sm btn-outline-primary"
                                   *ngIf="!isItemComplete(item) && item.qty_per_unit > 1"
