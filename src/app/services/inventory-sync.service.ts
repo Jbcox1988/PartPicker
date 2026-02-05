@@ -1,6 +1,5 @@
 import { Injectable } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
-import * as XLSX from 'xlsx';
 import { SupabaseService } from './supabase.service';
 
 export interface InventoryRecord {
@@ -213,6 +212,7 @@ export class InventorySyncService {
     const errors: string[] = [];
 
     try {
+      const XLSX = await import('xlsx');
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data, { type: 'array' });
 

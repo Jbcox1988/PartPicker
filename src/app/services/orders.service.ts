@@ -40,88 +40,26 @@ export class OrdersService implements OnDestroy {
       this.loadingSubject.next(true);
       this.errorSubject.next(null);
 
-      // Fetch orders with tools
+      // Fetch orders with tools and server-computed progress in a single query
       const { data: ordersData, error: ordersError } = await this.supabase.from('orders')
-        .select(`*, tools (*)`)
+        .select(`
+          *,
+          tools (*),
+          order_progress (total_items, picked_items, progress_percent)
+        `)
         .order('created_at', { ascending: false });
 
       if (ordersError) throw ordersError;
 
-      // Fetch all line items with pagination (Supabase default limit is 1000)
-      let lineItemsData: { id: string; order_id: string; total_qty_needed: number }[] = [];
-      {
-        const pageSize = 1000;
-        let offset = 0;
-        let hasMore = true;
-
-        while (hasMore) {
-          const { data, error: lineItemsError } = await this.supabase.from('line_items')
-            .select('id, order_id, total_qty_needed')
-            .range(offset, offset + pageSize - 1);
-
-          if (lineItemsError) throw lineItemsError;
-
-          if (data && data.length > 0) {
-            lineItemsData.push(...data);
-            offset += pageSize;
-            hasMore = data.length === pageSize;
-          } else {
-            hasMore = false;
-          }
-        }
-      }
-
-      // Fetch all active (non-undone) picks with pagination (Supabase default limit is 1000)
-      let picksData: { line_item_id: string; qty_picked: number }[] = [];
-      const pageSize = 1000;
-      let offset = 0;
-      let hasMore = true;
-
-      while (hasMore) {
-        const { data, error: picksError } = await this.supabase.from('picks')
-          .select('line_item_id, qty_picked')
-          .is('undone_at', null)
-          .range(offset, offset + pageSize - 1);
-
-        if (picksError) throw picksError;
-
-        if (data && data.length > 0) {
-          picksData.push(...data);
-          offset += pageSize;
-          hasMore = data.length === pageSize;
-        } else {
-          hasMore = false;
-        }
-      }
-
-      // Calculate progress for each order
-      const picksByLineItem = new Map<string, number>();
-      for (const pick of picksData || []) {
-        const current = picksByLineItem.get(pick.line_item_id) || 0;
-        picksByLineItem.set(pick.line_item_id, current + pick.qty_picked);
-      }
-
-      const lineItemsByOrder = new Map<string, { total: number; picked: number }>();
-      for (const item of lineItemsData || []) {
-        const current = lineItemsByOrder.get(item.order_id) || { total: 0, picked: 0 };
-        current.total += 1;
-        const qtyPicked = picksByLineItem.get(item.id) || 0;
-        if (qtyPicked >= item.total_qty_needed) {
-          current.picked += 1;
-        }
-        lineItemsByOrder.set(item.order_id, current);
-      }
-
       const ordersWithProgress: OrderWithProgress[] = (ordersData || []).map(order => {
-        const progress = lineItemsByOrder.get(order.id) || { total: 0, picked: 0 };
+        // order_progress is a 1-to-1 relation via order_id, Supabase returns it as an array
+        const progress = (order.order_progress as { total_items: number; picked_items: number; progress_percent: number }[] | null)?.[0];
         return {
           ...order,
           tools: order.tools || [],
-          total_items: progress.total,
-          picked_items: progress.picked,
-          progress_percent: progress.total > 0
-            ? Math.round((progress.picked / progress.total) * 100)
-            : 0,
+          total_items: progress?.total_items ?? 0,
+          picked_items: progress?.picked_items ?? 0,
+          progress_percent: progress?.progress_percent ?? 0,
         };
       });
 

@@ -247,13 +247,18 @@ const ITEMS_TO_ORDER_SORT_KEY = 'items-to-order-sort-preference';
         </div>
       </div>
 
+      <!-- Error Message -->
+      <div *ngIf="error" class="alert alert-danger" role="alert">
+        <i class="bi bi-exclamation-triangle me-2"></i>{{ error }}
+      </div>
+
       <!-- Loading -->
       <div *ngIf="loading" class="card">
         <div class="card-body text-center py-5 text-muted">Loading...</div>
       </div>
 
       <!-- Empty State -->
-      <div *ngIf="!loading && currentItems.length === 0" class="card">
+      <div *ngIf="!loading && !error && currentItems.length === 0" class="card">
         <div class="card-body text-center py-5">
           <i class="bi display-4 mb-3" [class]="activeTab === 'need-to-order' ? 'bi-check-circle text-success' : 'bi-truck text-muted'"></i>
           <p class="text-muted mb-0">
@@ -375,6 +380,7 @@ export class ItemsToOrderComponent implements OnInit, OnDestroy {
   items: ItemToOrder[] = [];
   onOrderItems: ItemToOrder[] = [];
   loading = true;
+  error: string | null = null;
   searchQuery = '';
   activeTab: 'need-to-order' | 'on-order' = 'need-to-order';
   sortMode: SortMode = 'remaining';
@@ -405,6 +411,9 @@ export class ItemsToOrderComponent implements OnInit, OnDestroy {
       }),
       this.itemsToOrderService.loading$.subscribe(loading => {
         this.loading = loading;
+      }),
+      this.itemsToOrderService.error$.subscribe(error => {
+        this.error = error;
       })
     );
   }
@@ -590,7 +599,7 @@ export class ItemsToOrderComponent implements OnInit, OnDestroy {
     this.selectedAssemblies = new Set();
   }
 
-  handleExport(): void {
-    this.excelService.exportItemsToOrderToExcel(this.filteredItems);
+  async handleExport(): Promise<void> {
+    await this.excelService.exportItemsToOrderToExcel(this.filteredItems);
   }
 }

@@ -539,6 +539,8 @@ export class PickHistoryComponent implements OnInit {
     const today = new Date();
     this.startDate = this.formatDateTimeLocal(this.startOfDay(today));
     this.endDate = this.formatDateTimeLocal(this.endOfDay(today));
+    // Auto-fetch on page load
+    this.fetchData();
   }
 
   get allActivities(): ActivityRecord[] {
@@ -1026,7 +1028,7 @@ export class PickHistoryComponent implements OnInit {
         description: log.description,
       }));
 
-      this.excelService.exportPickHistoryToExcel(
+      await this.excelService.exportPickHistoryToExcel(
         exportData,
         this.startDate,
         this.endDate,

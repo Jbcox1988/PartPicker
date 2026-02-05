@@ -1838,9 +1838,9 @@ export class OrderDetailComponent implements OnInit, OnDestroy {
     await this.loadOrder();
   }
 
-  handleExport(): void {
+  async handleExport(): Promise<void> {
     if (!this.order) return;
-    this.excelService.exportOrderToExcel(this.order, this.tools, this.lineItemsWithPicks, this.picks);
+    await this.excelService.exportOrderToExcel(this.order, this.tools, this.lineItemsWithPicks, this.picks);
   }
 
   async handleAddTool(): Promise<void> {

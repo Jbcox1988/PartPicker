@@ -810,8 +810,8 @@ export class ImportComponent implements OnInit, OnDestroy {
     this.currentFile = null;
   }
 
-  downloadTemplate(type: 'single' | 'multi'): void {
-    this.excelService.downloadImportTemplate(type);
+  async downloadTemplate(type: 'single' | 'multi'): Promise<void> {
+    await this.excelService.downloadImportTemplate(type);
   }
 
   // ===================== Multi-BOM Methods =====================

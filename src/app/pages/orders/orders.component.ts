@@ -375,8 +375,8 @@ export class OrdersComponent implements OnInit, OnDestroy {
     }
   }
 
-  handleExportOrders(): void {
-    this.excelService.exportOrdersSummaryToExcel(this.orders);
+  async handleExportOrders(): Promise<void> {
+    await this.excelService.exportOrdersSummaryToExcel(this.orders);
   }
 
   closeModalOnBackdrop(event: MouseEvent): void {

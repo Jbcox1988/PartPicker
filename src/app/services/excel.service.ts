@@ -1,5 +1,4 @@
 import { Injectable } from '@angular/core';
-import * as XLSX from 'xlsx';
 import { ImportedOrder, ImportedTool, ImportedLineItem, Order, Tool, LineItemWithPicks, Pick, OrderWithProgress, ItemToOrder, Issue, PartsCatalogItem, BOMTemplate, BOMTemplateItem, PickUndo } from '../models';
 import { SupabaseService } from './supabase.service';
 
@@ -15,6 +14,7 @@ export class ExcelService {
     errors: string[];
     warnings: string[];
   }> {
+    const XLSX = await import('xlsx');
     return new Promise((resolve) => {
       const reader = new FileReader();
       const errors: string[] = [];
@@ -59,9 +59,9 @@ export class ExcelService {
               } else if (label.includes('customer')) {
                 customerName = String(value || '').trim();
               } else if (label.includes('order') && label.includes('date')) {
-                orderDate = this.parseDate(value);
+                orderDate = this.parseDate(XLSX, value);
               } else if (label.includes('due') && label.includes('date')) {
-                dueDate = this.parseDate(value);
+                dueDate = this.parseDate(XLSX, value);
               } else if (label.includes('tool') && label.includes('qty')) {
                 toolQty = parseInt(String(value || '1'), 10) || 1;
               } else if (label.includes('model')) {
@@ -173,6 +173,7 @@ export class ExcelService {
     errors: string[];
     warnings: string[];
   }> {
+    const XLSX = await import('xlsx');
     return new Promise((resolve) => {
       const reader = new FileReader();
       const errors: string[] = [];
@@ -234,7 +235,8 @@ export class ExcelService {
     });
   }
 
-  exportOrderToExcel(order: Order, tools: Tool[], lineItems: LineItemWithPicks[], picks: Pick[]): void {
+  async exportOrderToExcel(order: Order, tools: Tool[], lineItems: LineItemWithPicks[], picks: Pick[]): Promise<void> {
+    const XLSX = await import('xlsx');
     const workbook = XLSX.utils.book_new();
 
     // Order Info sheet
@@ -278,7 +280,8 @@ export class ExcelService {
     XLSX.writeFile(workbook, `SO-${order.so_number}.xlsx`);
   }
 
-  exportOrdersSummaryToExcel(orders: OrderWithProgress[]): void {
+  async exportOrdersSummaryToExcel(orders: OrderWithProgress[]): Promise<void> {
+    const XLSX = await import('xlsx');
     const workbook = XLSX.utils.book_new();
 
     const header = ['SO Number', 'PO Number', 'Customer', 'Status', 'Tools', 'Total Parts', 'Picked', 'Progress %', 'Order Date', 'Due Date'];
@@ -301,7 +304,8 @@ export class ExcelService {
     XLSX.writeFile(workbook, `Orders-Export-${new Date().toISOString().split('T')[0]}.xlsx`);
   }
 
-  exportItemsToOrderToExcel(items: ItemToOrder[]): void {
+  async exportItemsToOrderToExcel(items: ItemToOrder[]): Promise<void> {
+    const XLSX = await import('xlsx');
     const workbook = XLSX.utils.book_new();
 
     const header = ['Part Number', 'Description', 'Location', 'Qty Available', 'Total Needed', 'Remaining', 'Related Orders'];
@@ -324,7 +328,8 @@ export class ExcelService {
   /**
    * Export pick history to Excel with date range
    */
-  exportPickHistoryToExcel(picks: any[], startDate: string, endDate: string, undos?: any[], activityLogs?: any[]): void {
+  async exportPickHistoryToExcel(picks: any[], startDate: string, endDate: string, undos?: any[], activityLogs?: any[]): Promise<void> {
+    const XLSX = await import('xlsx');
     const workbook = XLSX.utils.book_new();
 
     // Pick History Sheet - includes Status column to show deleted picks
@@ -459,7 +464,8 @@ export class ExcelService {
     XLSX.writeFile(workbook, `Pick-History-${dateStr}.xlsx`);
   }
 
-  downloadImportTemplate(type: 'single' | 'multi' = 'single'): void {
+  async downloadImportTemplate(type: 'single' | 'multi' = 'single'): Promise<void> {
+    const XLSX = await import('xlsx');
     const workbook = XLSX.utils.book_new();
 
     // Order Info sheet
@@ -499,7 +505,7 @@ export class ExcelService {
     return undefined;
   }
 
-  private parseDate(value: any): string {
+  private parseDate(XLSX: typeof import('xlsx'), value: any): string {
     if (!value) return '';
     if (typeof value === 'number') {
       // Excel date serial number
@@ -521,6 +527,7 @@ export class ExcelService {
    * Export full backup of all database tables to Excel
    */
   async exportFullBackupToExcel(): Promise<void> {
+    const XLSX = await import('xlsx');
     const workbook = XLSX.utils.book_new();
 
     // Helper function to fetch all data from a table with pagination
@@ -754,6 +761,7 @@ export class ExcelService {
     errors: string[];
     warnings: string[];
   }> {
+    const XLSX = await import('xlsx');
     return new Promise((resolve) => {
       const reader = new FileReader();
       const errors: string[] = [];
@@ -798,9 +806,9 @@ export class ExcelService {
               } else if (label.includes('customer')) {
                 customerName = String(value || '').trim();
               } else if (label.includes('order') && label.includes('date')) {
-                orderDate = this.parseDate(value);
+                orderDate = this.parseDate(XLSX, value);
               } else if (label.includes('due') && label.includes('date')) {
-                dueDate = this.parseDate(value);
+                dueDate = this.parseDate(XLSX, value);
               } else if (label.includes('tool') && label.includes('qty')) {
                 toolQty = parseInt(String(value || '1'), 10) || 1;
               } else if (label.includes('model')) {
