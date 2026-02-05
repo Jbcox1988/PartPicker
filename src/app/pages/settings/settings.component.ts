@@ -61,6 +61,41 @@ import { UserSettings } from '../../models';
             </div>
           </div>
 
+          <!-- Tag Printing -->
+          <div class="card mb-4">
+            <div class="card-header">
+              <span class="fw-semibold">
+                <i class="bi bi-printer me-2"></i>Tag Printing
+              </span>
+            </div>
+            <div class="card-body">
+              <div class="d-flex align-items-center justify-content-between mb-3">
+                <div>
+                  <div class="fw-medium">Enable Tag Printing</div>
+                  <div class="form-text">Show print dialog after picking parts</div>
+                </div>
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" role="switch"
+                         [(ngModel)]="tagPrintingEnabled"
+                         (change)="saveTagPrinting()">
+                </div>
+              </div>
+
+              <div class="small text-muted">
+                <div class="fw-medium text-body mb-2">Printer Setup:</div>
+                <ul class="ps-3 mb-2">
+                  <li><strong>Printer:</strong> Brother P-Touch QL500</li>
+                  <li><strong>Label Size:</strong> 0.66" x 3.4" (landscape)</li>
+                  <li>Each part/tool combination gets one tag</li>
+                </ul>
+                <div class="alert alert-light small py-2 mb-0">
+                  <i class="bi bi-lightbulb me-1"></i>
+                  Tip: Set the Brother QL500 as your default printer for faster printing.
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- App Status -->
           <div class="card mb-4">
             <div class="card-header">
@@ -418,6 +453,7 @@ import { UserSettings } from '../../models';
 export class SettingsComponent implements OnInit, OnDestroy {
   userName = '';
   theme: 'light' | 'dark' | 'system' = 'system';
+  tagPrintingEnabled = false;
 
   // App status
   isOnline = navigator.onLine;
@@ -469,6 +505,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
       this.settingsService.settings$.subscribe(settings => {
         this.userName = settings.user_name;
         this.theme = settings.theme;
+        this.tagPrintingEnabled = settings.tagPrintingEnabled === true;
       }),
       this.offlineService.isOnline$.subscribe(online => {
         this.isOnline = online;
@@ -524,6 +561,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   saveTheme(): void {
     this.settingsService.setTheme(this.theme);
+  }
+
+  saveTagPrinting(): void {
+    this.settingsService.setTagPrintingEnabled(this.tagPrintingEnabled);
   }
 
   // Inventory Sync

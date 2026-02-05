@@ -15,6 +15,7 @@ import { ActivityLogService } from '../../services/activity-log.service';
 import { Order, Tool, LineItem, LineItemWithPicks, Pick, IssueType } from '../../models';
 import { SaveAsTemplateDialogComponent } from '../../components/dialogs/save-as-template-dialog.component';
 import { PrintPickListComponent } from '../../components/picking/print-pick-list.component';
+import { PrintTagDialogComponent, TagData } from '../../components/picking/print-tag-dialog.component';
 import { DistributeInventoryDialogComponent } from '../../components/dialogs/distribute-inventory-dialog.component';
 
 type SortMode = 'part_number' | 'location' | 'assembly';
@@ -27,7 +28,7 @@ interface PickHistoryItem {
 @Component({
   selector: 'app-order-detail',
   standalone: true,
-  imports: [CommonModule, RouterModule, FormsModule, SaveAsTemplateDialogComponent, PrintPickListComponent, DistributeInventoryDialogComponent],
+  imports: [CommonModule, RouterModule, FormsModule, SaveAsTemplateDialogComponent, PrintPickListComponent, PrintTagDialogComponent, DistributeInventoryDialogComponent],
   template: `
     <div *ngIf="loading" class="text-center py-5">
       <div class="spinner-border text-primary" role="status">
@@ -884,6 +885,13 @@ interface PickHistoryItem {
         [getToolPicked]="getToolPickedBound"
         (distribute)="handleDistribute($event)"
       ></app-distribute-inventory-dialog>
+
+      <!-- Print Tag Dialog -->
+      <app-print-tag-dialog
+        [isOpen]="showPrintTagDialog"
+        [tagData]="printTagData"
+        (close)="closePrintTagDialog()"
+      ></app-print-tag-dialog>
     </div>
   `,
   styles: [`
@@ -1011,6 +1019,10 @@ export class OrderDetailComponent implements OnInit, OnDestroy {
   deleteLineItemTarget: LineItemWithPicks | null = null;
   overPickWarning: string | null = null;
   scrollToItemId: string | null = null;
+
+  // Tag printing
+  showPrintTagDialog = false;
+  printTagData: TagData | TagData[] | null = null;
 
   editForm = {
     so_number: '',
@@ -1589,6 +1601,21 @@ export class OrderDetailComponent implements OnInit, OnDestroy {
       setTimeout(() => this.overPickWarning = null, 8000);
     }
 
+    // Trigger tag printing dialog if enabled and pick was successful
+    if (result && this.settingsService.isTagPrintingEnabled() && this.order) {
+      this.printTagData = {
+        partNumber: item.part_number,
+        description: item.description,
+        location: item.location,
+        soNumber: this.order.so_number,
+        toolNumber: tool.tool_number,
+        qtyPicked: remaining,
+        pickedBy: userName,
+        pickedAt: new Date(),
+      };
+      this.showPrintTagDialog = true;
+    }
+
     this.isSubmitting = null;
   }
 
@@ -1910,7 +1937,11 @@ export class OrderDetailComponent implements OnInit, OnDestroy {
     this.isSubmitting = this.distributeItem.id;
     this.scrollToItemId = this.distributeItem.id;  // Track for scroll after refresh
     const userName = this.settingsService.getUserName();
+    const pickedAt = new Date();
     let hasWarnings = false;
+
+    // Track successful picks for tag printing
+    const successfulPicks: { toolId: string; qty: number }[] = [];
 
     for (const alloc of allocations) {
       if (alloc.qty > 0) {
@@ -1920,8 +1951,11 @@ export class OrderDetailComponent implements OnInit, OnDestroy {
           alloc.qty,
           userName
         );
-        if (result && 'overPickWarning' in result && result.overPickWarning) {
-          hasWarnings = true;
+        if (result) {
+          successfulPicks.push(alloc);
+          if ('overPickWarning' in result && result.overPickWarning) {
+            hasWarnings = true;
+          }
         }
       }
     }
@@ -1931,7 +1965,32 @@ export class OrderDetailComponent implements OnInit, OnDestroy {
       setTimeout(() => this.overPickWarning = null, 8000);
     }
 
+    // Trigger tag printing dialog if enabled and picks were made
+    if (successfulPicks.length > 0 && this.settingsService.isTagPrintingEnabled() && this.order) {
+      // Create one tag per tool that received picks
+      const tags: TagData[] = successfulPicks.map(alloc => {
+        const tool = this.tools.find(t => t.id === alloc.toolId);
+        return {
+          partNumber: this.distributeItem!.part_number,
+          description: this.distributeItem!.description,
+          location: this.distributeItem!.location,
+          soNumber: this.order!.so_number,
+          toolNumber: tool?.tool_number || 'Unknown',
+          qtyPicked: alloc.qty,
+          pickedBy: userName,
+          pickedAt: pickedAt,
+        };
+      });
+      this.printTagData = tags;
+      this.showPrintTagDialog = true;
+    }
+
     this.isSubmitting = null;
     this.distributeItem = null;
+  }
+
+  closePrintTagDialog(): void {
+    this.showPrintTagDialog = false;
+    this.printTagData = null;
   }
 }

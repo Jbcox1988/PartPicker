@@ -76,4 +76,13 @@ export class SettingsService {
       }
     });
   }
+
+  isTagPrintingEnabled(): boolean {
+    return this.settingsSubject.getValue().tagPrintingEnabled === true;
+  }
+
+  setTagPrintingEnabled(enabled: boolean): void {
+    const settings = this.getSettings();
+    this.saveSettings({ ...settings, tagPrintingEnabled: enabled });
+  }
 }
