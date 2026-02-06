@@ -164,12 +164,16 @@ export function PrintPickList({
 function printViaIframe(htmlContent: string, title?: string) {
   const cleanHTML = htmlContent.replace(/<script[\s\S]*?<\/script>/gi, '');
 
+  // Use full viewport dimensions positioned off-screen. Chrome skips
+  // layout/paint for zero-size iframes, causing print preview to hang.
+  const vw = document.documentElement.clientWidth;
+  const vh = document.documentElement.clientHeight;
   const iframe = document.createElement('iframe');
-  iframe.style.position = 'fixed';
-  iframe.style.right = '0';
-  iframe.style.bottom = '0';
-  iframe.style.width = '0';
-  iframe.style.height = '0';
+  iframe.style.position = 'absolute';
+  iframe.style.top = `-${vh + 100}px`;
+  iframe.style.left = `-${vw + 100}px`;
+  iframe.style.width = `${vw}px`;
+  iframe.style.height = `${vh}px`;
   iframe.style.border = 'none';
   document.body.appendChild(iframe);
 
@@ -198,18 +202,17 @@ function printViaIframe(htmlContent: string, title?: string) {
   iframe.contentWindow.onafterprint = cleanup;
 
   // document.write() is synchronous — DOM is ready immediately after close().
-  // No onload handler needed (and it can race with close()).
   iframeDoc.open();
   iframeDoc.write(cleanHTML);
   iframeDoc.close();
 
-  // Delay for Chrome to complete the composite pass, then print.
+  // Wait for Chrome to complete layout + composite pass, then print.
   setTimeout(() => {
     if (iframe.contentWindow) {
       iframe.contentWindow.focus();
       iframe.contentWindow.print();
     }
-  }, 300);
+  }, 500);
 
   // Safety net: clean up after 60s if onafterprint never fires
   setTimeout(cleanup, 60000);
