@@ -66,18 +66,24 @@ export function PrintPickList({
 
     const printData = toolsToPrint.map(getToolData);
 
-    // Create a new window for printing
-    const printWindow = window.open('', '_blank');
+    const printContent = generatePrintHTML(order, printData);
+
+    // Use a Blob URL so the page loads as a real document with reliable onload
+    const blob = new Blob([printContent], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const printWindow = window.open(url, '_blank');
     if (!printWindow) {
+      URL.revokeObjectURL(url);
       alert('Please allow popups to print the pick list');
       return;
     }
 
-    const printContent = generatePrintHTML(order, printData);
-    printWindow.document.write(printContent);
-    printWindow.document.close();
+    printWindow.onload = () => {
+      URL.revokeObjectURL(url);
+      printWindow.focus();
+      printWindow.print();
+    };
 
-    // Close after printing (or after user cancels)
     printWindow.onafterprint = () => {
       printWindow.close();
     };
@@ -458,14 +464,6 @@ function generatePrintHTML(order: Order, toolsData: PrintableToolData[]): string
         <span>Generated: ${new Date().toLocaleString()}</span>
         <span>Tool Pick List Tracker</span>
       </div>
-      <script>
-        // Print once content is fully rendered
-        requestAnimationFrame(function() {
-          requestAnimationFrame(function() {
-            window.print();
-          });
-        });
-      </script>
     </body>
     </html>
   `;

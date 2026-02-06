@@ -47,19 +47,25 @@ export function PrintTagDialog({
     setIsPrinting(true);
 
     try {
-      // Open a single print window with all tags
-      const printWindow = window.open('', '_blank', 'width=600,height=400');
+      const printContent = generateTagsHTML(tagsArray);
+
+      // Use a Blob URL so the page loads as a real document with reliable onload
+      const blob = new Blob([printContent], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const printWindow = window.open(url, '_blank', 'width=600,height=400');
       if (!printWindow) {
+        URL.revokeObjectURL(url);
         alert('Please allow popups to print tags');
         setIsPrinting(false);
         return;
       }
 
-      const printContent = generateTagsHTML(tagsArray);
-      printWindow.document.write(printContent);
-      printWindow.document.close();
+      printWindow.onload = () => {
+        URL.revokeObjectURL(url);
+        printWindow.focus();
+        printWindow.print();
+      };
 
-      // Close the print window after printing completes
       printWindow.onafterprint = () => {
         printWindow.close();
       };
@@ -98,7 +104,7 @@ export function PrintTagDialog({
               Tag Preview (0.66" x 3.4"){totalTags > 1 && ` - showing 1 of ${totalTags}`}
             </div>
             <div
-              className="bg-white mx-auto my-3 flex gap-2"
+              className="bg-white mx-auto my-3 flex flex-col"
               style={{
                 width: '340px',
                 height: '66px',
@@ -108,43 +114,45 @@ export function PrintTagDialog({
                 fontFamily: 'Arial, sans-serif',
               }}
             >
-              <div className="flex-1 flex flex-col justify-between min-w-0 overflow-hidden">
-                <div className="flex justify-between items-baseline gap-1">
-                  <span className="font-black font-mono truncate min-w-0 flex-1" style={{ fontSize: '12px' }}>
-                    {firstTag.partNumber}
-                  </span>
-                  <span className="text-gray-500 font-medium flex-shrink-0" style={{ fontSize: '10px' }}>Qty: {firstTag.qtyPicked}</span>
-                </div>
-                <div className="truncate text-gray-600" style={{ fontSize: '9px' }}>
-                  {firstTag.location || 'N/A'}
-                </div>
-                <div className="truncate text-gray-700" style={{ fontSize: '9px' }}>
-                  {firstTag.description || '-'}
-                </div>
-                <div className="flex justify-between items-end" style={{ fontSize: '9px' }}>
-                  <span className="text-gray-600">
-                    {firstTag.soNumber} / {firstTag.toolNumber}
-                  </span>
-                  <span className="text-gray-500 whitespace-nowrap">
-                    {firstTag.pickedBy} {formatShortDate(firstTag.pickedAt)}
-                  </span>
-                </div>
+              <div className="flex justify-between items-baseline gap-1">
+                <span className="font-black font-mono" style={{ fontSize: '12px' }}>
+                  {firstTag.partNumber}
+                </span>
+                <span className="text-gray-500 font-medium flex-shrink-0" style={{ fontSize: '10px' }}>Qty: {firstTag.qtyPicked}</span>
               </div>
-              <div className="flex-shrink-0 flex items-center justify-center w-16 border-l pl-2">
-                <div className="flex flex-col items-center">
-                  <div className="flex gap-px">
-                    {[...Array(12)].map((_, i) => (
-                      <div
-                        key={i}
-                        className="bg-black"
-                        style={{
-                          width: i % 3 === 0 ? '2px' : '1px',
-                          height: '28px',
-                        }}
-                      />
-                    ))}
+              <div className="flex-1 flex gap-2 min-h-0">
+                <div className="flex-1 flex flex-col justify-between min-w-0 overflow-hidden">
+                  <div className="truncate text-gray-600" style={{ fontSize: '9px' }}>
+                    {firstTag.location || 'N/A'}
                   </div>
-                  <span className="text-[6px] text-gray-400 mt-0.5">BARCODE</span>
+                  <div className="truncate text-gray-700" style={{ fontSize: '9px' }}>
+                    {firstTag.description || '-'}
+                  </div>
+                  <div className="flex justify-between items-end" style={{ fontSize: '9px' }}>
+                    <span className="text-gray-600">
+                      {firstTag.soNumber} / {firstTag.toolNumber}
+                    </span>
+                    <span className="text-gray-500 whitespace-nowrap">
+                      {firstTag.pickedBy} {formatShortDate(firstTag.pickedAt)}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex-shrink-0 flex items-center justify-center border-l pl-2">
+                  <div className="flex flex-col items-center">
+                    <div className="flex gap-px">
+                      {[...Array(12)].map((_, i) => (
+                        <div
+                          key={i}
+                          className="bg-black"
+                          style={{
+                            width: i % 3 === 0 ? '2px' : '1px',
+                            height: '20px',
+                          }}
+                        />
+                      ))}
+                    </div>
+                    <span className="text-[6px] text-gray-400 mt-0.5">BARCODE</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -192,7 +200,7 @@ function generateBarcodeSVG(value: string): string {
     JsBarcode(svg, value, {
       format: 'CODE128',
       width: 1.5,
-      height: 35,
+      height: 25,
       displayValue: false,
       margin: 0,
     });
@@ -213,12 +221,12 @@ function generateTagsHTML(tagsArray: TagData[]): string {
 
     return `
       <div class="tag">
-        <div class="tag-content">
+        <div class="tag-row-top">
+          <span class="part-number">${escapeHtml(partNumber)}</span>
+          <span class="tag-count">Qty: ${qtyPicked}</span>
+        </div>
+        <div class="tag-bottom">
           <div class="tag-text">
-            <div class="tag-row-top">
-              <span class="part-number">${escapeHtml(partNumber)}</span>
-              <span class="tag-count">Qty: ${qtyPicked}</span>
-            </div>
             <div class="tag-row-location">
               <span class="location">${escapeHtml(location || 'N/A')}</span>
             </div>
@@ -266,16 +274,26 @@ function generateTagsHTML(tagsArray: TagData[]): string {
           height: 0.66in;
           padding: 0.04in 0.06in 0.03in 0.12in;
           page-break-after: always;
+          display: flex;
+          flex-direction: column;
         }
 
         .tag:last-child {
           page-break-after: auto;
         }
 
-        .tag-content {
+        .tag-row-top {
           display: flex;
-          height: 100%;
+          justify-content: space-between;
+          align-items: baseline;
           gap: 0.05in;
+        }
+
+        .tag-bottom {
+          flex: 1;
+          display: flex;
+          gap: 0.05in;
+          min-height: 0;
         }
 
         .tag-text {
@@ -295,15 +313,8 @@ function generateTagsHTML(tagsArray: TagData[]): string {
         }
 
         .barcode-container svg {
-          height: 0.5in;
+          height: 0.35in;
           width: auto;
-        }
-
-        .tag-row-top {
-          display: flex;
-          justify-content: space-between;
-          align-items: baseline;
-          gap: 0.05in;
         }
 
         .tag-row-location {
@@ -332,11 +343,7 @@ function generateTagsHTML(tagsArray: TagData[]): string {
           font-weight: 900;
           font-family: 'Courier New', monospace;
           font-size: 12px;
-          overflow: hidden;
-          text-overflow: ellipsis;
           white-space: nowrap;
-          min-width: 0;
-          flex: 1;
         }
 
         .location {
@@ -373,7 +380,6 @@ function generateTagsHTML(tagsArray: TagData[]): string {
     </head>
     <body>
       ${tags.join('')}
-      <script>window.print();</script>
     </body>
     </html>
   `;
