@@ -339,6 +339,10 @@ function PartCard({ part, isExpanded, onToggleExpand, onPickClick, refCallback, 
 
 const CONSOLIDATED_SORT_PREFERENCE_KEY = 'consolidated-parts-sort-preference';
 const CONSOLIDATED_STATUS_FILTER_KEY = 'consolidated-parts-status-filter';
+const CONSOLIDATED_SHOW_COMPLETED_KEY = 'consolidated-parts-show-completed';
+const CONSOLIDATED_HIDE_OUT_OF_STOCK_KEY = 'consolidated-parts-hide-out-of-stock';
+const CONSOLIDATED_OUT_OF_STOCK_ONLY_KEY = 'consolidated-parts-out-of-stock-only';
+const CONSOLIDATED_HIDE_ISSUES_KEY = 'consolidated-parts-hide-issues';
 
 export function ConsolidatedParts() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -351,10 +355,10 @@ export function ConsolidatedParts() {
   const [searchQuery, setSearchQuery] = useState('');
   const debouncedSearch = useDebouncedValue(searchQuery, 300);
   const [expandedParts, setExpandedParts] = useState<Set<string>>(new Set());
-  const [showCompleted, setShowCompleted] = useState(false);
-  const [hideOutOfStock, setHideOutOfStock] = useState(false);
-  const [showOutOfStockOnly, setShowOutOfStockOnly] = useState(false);
-  const [hideIssues, setHideIssues] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(() => localStorage.getItem(CONSOLIDATED_SHOW_COMPLETED_KEY) === 'true');
+  const [hideOutOfStock, setHideOutOfStock] = useState(() => localStorage.getItem(CONSOLIDATED_HIDE_OUT_OF_STOCK_KEY) === 'true');
+  const [showOutOfStockOnly, setShowOutOfStockOnly] = useState(() => localStorage.getItem(CONSOLIDATED_OUT_OF_STOCK_ONLY_KEY) === 'true');
+  const [hideIssues, setHideIssues] = useState(() => localStorage.getItem(CONSOLIDATED_HIDE_ISSUES_KEY) === 'true');
   const [sortMode, setSortMode] = useState<SortMode>(() => {
     const saved = localStorage.getItem(CONSOLIDATED_SORT_PREFERENCE_KEY);
     return (saved as SortMode) || 'part_number';
@@ -376,6 +380,12 @@ export function ConsolidatedParts() {
   useEffect(() => {
     localStorage.setItem(CONSOLIDATED_STATUS_FILTER_KEY, statusFilter);
   }, [statusFilter]);
+
+  // Persist toggle preferences
+  useEffect(() => { localStorage.setItem(CONSOLIDATED_SHOW_COMPLETED_KEY, String(showCompleted)); }, [showCompleted]);
+  useEffect(() => { localStorage.setItem(CONSOLIDATED_HIDE_OUT_OF_STOCK_KEY, String(hideOutOfStock)); }, [hideOutOfStock]);
+  useEffect(() => { localStorage.setItem(CONSOLIDATED_OUT_OF_STOCK_ONLY_KEY, String(showOutOfStockOnly)); }, [showOutOfStockOnly]);
+  useEffect(() => { localStorage.setItem(CONSOLIDATED_HIDE_ISSUES_KEY, String(hideIssues)); }, [hideIssues]);
 
   // Multi-order pick dialog state
   const [selectedPart, setSelectedPart] = useState<ConsolidatedPart | null>(null);
