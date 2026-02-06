@@ -6,6 +6,8 @@ import { GlobalSearchComponent } from './components/layout/global-search.compone
 import { InstallPromptComponent } from './components/pwa/install-prompt.component';
 import { UpdatePromptComponent } from './components/pwa/update-prompt.component';
 import { OfflineIndicatorComponent } from './components/pwa/offline-indicator.component';
+import { PasswordGateComponent } from './components/auth/password-gate.component';
+import { NamePromptComponent } from './components/auth/name-prompt.component';
 
 @Component({
   selector: 'app-root',
@@ -17,9 +19,13 @@ import { OfflineIndicatorComponent } from './components/pwa/offline-indicator.co
     GlobalSearchComponent,
     InstallPromptComponent,
     UpdatePromptComponent,
-    OfflineIndicatorComponent
+    OfflineIndicatorComponent,
+    PasswordGateComponent,
+    NamePromptComponent
   ],
   template: `
+    <app-password-gate>
+    <app-name-prompt></app-name-prompt>
     <div class="d-flex min-vh-100">
       <!-- Sidebar -->
       <aside class="sidebar d-none d-lg-flex flex-column" style="width: 260px;">
@@ -123,6 +129,7 @@ import { OfflineIndicatorComponent } from './components/pwa/offline-indicator.co
     <app-offline-indicator></app-offline-indicator>
     <app-install-prompt></app-install-prompt>
     <app-update-prompt></app-update-prompt>
+    </app-password-gate>
   `,
   styles: [`
     :host {

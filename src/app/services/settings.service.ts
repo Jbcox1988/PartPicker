@@ -85,4 +85,13 @@ export class SettingsService {
     const settings = this.getSettings();
     this.saveSettings({ ...settings, tagPrintingEnabled: enabled });
   }
+
+  isAuthenticated(): boolean {
+    return this.settingsSubject.getValue().isAuthenticated === true;
+  }
+
+  authenticate(): void {
+    const settings = this.getSettings();
+    this.saveSettings({ ...settings, isAuthenticated: true });
+  }
 }

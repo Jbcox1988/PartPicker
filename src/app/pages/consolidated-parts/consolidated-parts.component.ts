@@ -6,16 +6,18 @@ import { Subscription } from 'rxjs';
 import { ConsolidatedPartsService } from '../../services/consolidated-parts.service';
 import { PicksService } from '../../services/picks.service';
 import { SettingsService } from '../../services/settings.service';
+import { PartIssuesService } from '../../services/part-issues.service';
 import { UtilsService } from '../../services/utils.service';
-import { ConsolidatedPart } from '../../models';
+import { ConsolidatedPart, PartIssueType } from '../../models';
 import { MultiOrderPickDialogComponent } from '../../components/dialogs/multi-order-pick-dialog.component';
+import { ReportPartIssueDialogComponent } from '../../components/dialogs/report-part-issue-dialog.component';
 
-type FilterType = 'all' | 'remaining' | 'complete' | 'low_stock' | 'out_of_stock';
+type FilterType = 'all' | 'remaining' | 'complete' | 'low_stock' | 'out_of_stock' | 'has_issues';
 
 @Component({
   selector: 'app-consolidated-parts',
   standalone: true,
-  imports: [CommonModule, RouterModule, FormsModule, MultiOrderPickDialogComponent],
+  imports: [CommonModule, RouterModule, FormsModule, MultiOrderPickDialogComponent, ReportPartIssueDialogComponent],
   template: `
     <div>
       <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
@@ -103,6 +105,13 @@ type FilterType = 'all' | 'remaining' | 'complete' | 'low_stock' | 'out_of_stock
                         [class.btn-success]="filter === 'complete'"
                         [class.btn-outline-success]="filter !== 'complete'"
                         (click)="setFilter('complete')">Complete</button>
+                <button class="btn btn-sm"
+                        [class.btn-info]="filter === 'has_issues'"
+                        [class.btn-outline-info]="filter !== 'has_issues'"
+                        (click)="setFilter('has_issues')">
+                  Has Issues
+                  <span class="badge bg-secondary ms-1" *ngIf="issueCount > 0">{{ issueCount }}</span>
+                </button>
                 <div class="dropdown" (click)="$event.stopPropagation()">
                   <button class="btn btn-sm btn-outline-secondary dropdown-toggle d-flex align-items-center gap-1"
                           type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside">
@@ -193,7 +202,12 @@ type FilterType = 'all' | 'remaining' | 'complete' | 'low_stock' | 'out_of_stock
                   [class.table-success]="part.remaining === 0"
                   [class.table-warning]="part.total_picked > 0 && part.remaining > 0"
                   [class.table-danger]="getQtyAvailable(part) === 0 && part.remaining > 0">
-                <td class="font-mono fw-medium">{{ part.part_number }}</td>
+                <td class="font-mono fw-medium">
+                  {{ part.part_number }}
+                  <span class="badge bg-danger ms-1" *ngIf="hasPartIssue(part.part_number)">
+                    <i class="bi bi-exclamation-triangle-fill"></i> Issue
+                  </span>
+                </td>
                 <td class="text-muted">{{ part.description || '-' }}</td>
                 <td>{{ part.location || '-' }}</td>
                 <td class="text-center">
@@ -220,14 +234,24 @@ type FilterType = 'all' | 'remaining' | 'complete' | 'low_stock' | 'out_of_stock
                   </div>
                 </td>
                 <td class="text-center">
-                  <button
-                    class="btn btn-sm btn-outline-primary"
-                    (click)="openMultiOrderPick(part)"
-                    [disabled]="part.remaining === 0"
-                    title="Pick across orders"
-                  >
-                    <i class="bi bi-box-arrow-in-down"></i>
-                  </button>
+                  <div class="d-flex gap-1 justify-content-center">
+                    <button
+                      class="btn btn-sm btn-outline-primary"
+                      (click)="openMultiOrderPick(part)"
+                      [disabled]="part.remaining === 0"
+                      title="Pick across orders"
+                    >
+                      <i class="bi bi-box-arrow-in-down"></i>
+                    </button>
+                    <button
+                      class="btn btn-sm"
+                      [ngClass]="hasPartIssue(part.part_number) ? 'btn-danger' : 'btn-outline-warning'"
+                      (click)="openReportIssue(part)"
+                      title="Report issue"
+                    >
+                      <i class="bi bi-exclamation-triangle"></i>
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -242,6 +266,17 @@ type FilterType = 'all' | 'remaining' | 'complete' | 'low_stock' | 'out_of_stock
       [part]="selectedPart"
       (pick)="handleMultiOrderPick($event)"
     ></app-multi-order-pick-dialog>
+
+    <!-- Report Part Issue Dialog -->
+    <app-report-part-issue-dialog
+      [(show)]="showReportIssue"
+      [partNumber]="selectedPartForIssue?.part_number ?? null"
+      [partDescription]="selectedPartForIssue?.description ?? null"
+      [partLocation]="selectedPartForIssue?.location ?? null"
+      [existingIssue]="selectedPartForIssue ? partIssuesService.getOpenIssue(selectedPartForIssue.part_number) ?? null : null"
+      (submitIssue)="handleSubmitIssue($event)"
+      (resolveIssue)="handleResolveIssue($event)"
+    ></app-report-part-issue-dialog>
   `,
   styles: [`
     .cursor-pointer {
@@ -269,6 +304,10 @@ export class ConsolidatedPartsComponent implements OnInit, OnDestroy {
   selectedPart: ConsolidatedPart | null = null;
   scrollToPartNumber: string | null = null;
 
+  // Part issue dialog
+  showReportIssue = false;
+  selectedPartForIssue: ConsolidatedPart | null = null;
+
   // Track qty_available per part (may need to fetch from line_items)
   private qtyAvailableMap: Map<string, number | null> = new Map();
 
@@ -278,6 +317,7 @@ export class ConsolidatedPartsComponent implements OnInit, OnDestroy {
     private partsService: ConsolidatedPartsService,
     private picksService: PicksService,
     private settingsService: SettingsService,
+    public partIssuesService: PartIssuesService,
     public utils: UtilsService,
     private route: ActivatedRoute,
     private router: Router
@@ -291,6 +331,8 @@ export class ConsolidatedPartsComponent implements OnInit, OnDestroy {
       // Clear URL param to keep URL clean
       this.router.navigate([], { queryParams: {}, replaceUrl: true });
     }
+
+    this.partIssuesService.initialize();
 
     this.subscriptions.push(
       this.partsService.parts$.subscribe(parts => {
@@ -411,6 +453,9 @@ export class ConsolidatedPartsComponent implements OnInit, OnDestroy {
           const qty = this.getQtyAvailable(part);
           matchesFilter = qty === 0 && part.remaining > 0;
           break;
+        case 'has_issues':
+          matchesFilter = this.partIssuesService.hasOpenIssue(part.part_number);
+          break;
       }
 
       // Hide out of stock filter - excludes parts where qty_available is 0
@@ -506,5 +551,39 @@ export class ConsolidatedPartsComponent implements OnInit, OnDestroy {
 
     // Refresh the parts list
     this.partsService.fetchParts();
+  }
+
+  // Part Issues
+  get issueCount(): number {
+    return this.parts.filter(p => this.partIssuesService.hasOpenIssue(p.part_number)).length;
+  }
+
+  hasPartIssue(partNumber: string): boolean {
+    return this.partIssuesService.hasOpenIssue(partNumber);
+  }
+
+  openReportIssue(part: ConsolidatedPart): void {
+    this.selectedPartForIssue = part;
+    this.showReportIssue = true;
+  }
+
+  async handleSubmitIssue(event: { issueType: PartIssueType; description: string }): Promise<void> {
+    if (!this.selectedPartForIssue) return;
+    const userName = this.settingsService.getUserName();
+    await this.partIssuesService.reportIssue(
+      this.selectedPartForIssue.part_number,
+      event.issueType,
+      event.description || undefined,
+      userName || undefined
+    );
+    this.showReportIssue = false;
+    this.selectedPartForIssue = null;
+  }
+
+  async handleResolveIssue(issueId: string): Promise<void> {
+    const userName = this.settingsService.getUserName();
+    await this.partIssuesService.resolveIssue(issueId, userName || undefined);
+    this.showReportIssue = false;
+    this.selectedPartForIssue = null;
   }
 }

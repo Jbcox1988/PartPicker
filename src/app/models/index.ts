@@ -260,6 +260,42 @@ export interface PartConflict {
   action: 'keep' | 'update' | null;
 }
 
+// Part-level issues (different from line-item-level Issue)
+export type PartIssueType = 'inventory_discrepancy' | 'wrong_location' | 'damaged' | 'other';
+export type PartIssueStatus = 'open' | 'resolved';
+
+export interface PartIssue {
+  id: string;
+  part_number: string;
+  issue_type: PartIssueType;
+  description: string | null;
+  reported_by: string | null;
+  status: PartIssueStatus;
+  created_at: string;
+  resolved_at: string | null;
+  resolved_by: string | null;
+}
+
+export function getPartIssueTypeLabel(type: PartIssueType): string {
+  const labels: Record<PartIssueType, string> = {
+    inventory_discrepancy: 'Inventory Discrepancy',
+    wrong_location: 'Wrong Location',
+    damaged: 'Damaged',
+    other: 'Other',
+  };
+  return labels[type] || type;
+}
+
+export function getPartIssueTypeColor(type: PartIssueType): string {
+  const colors: Record<PartIssueType, string> = {
+    inventory_discrepancy: 'bg-warning text-dark',
+    wrong_location: 'bg-info text-dark',
+    damaged: 'bg-danger',
+    other: 'bg-secondary',
+  };
+  return colors[type] || 'bg-secondary';
+}
+
 // Line item input for creating/updating
 export interface LineItemInput {
   part_number: string;
